@@ -33,12 +33,12 @@ UNIT_SYSTEMS = {
 # Standard Rebar Area lookup
 def get_rebar_area(size, fmt):
     if fmt == "mm":
-        return (math.pi / 4.0) * (size ** 2) # mm2
+        return (math.pi / 4.0) * (size ** 2)
     elif fmt == "#":
-        dia = size / 8.0 # inches
-        return (math.pi / 4.0) * (dia ** 2) # in2
+        dia = size / 8.0 
+        return (math.pi / 4.0) * (dia ** 2)
     else:
-        return (math.pi / 4.0) * (size ** 2) # in2
+        return (math.pi / 4.0) * (size ** 2)
 
 # ==========================================
 # 1. SIDEBAR: UNITS & GEOMETRY
@@ -60,8 +60,8 @@ bays_y = st.sidebar.number_input("Number of Bays (Y-Dir)", value=2, min_value=1)
 span_y = st.sidebar.number_input(f"Bay Span Y ({units['len']})", value=4.0 if units['len']=='m' else (13.0 if units['len']=='ft' else 157.0))
 
 # Custom Grid Line Names
-x_grid_labels = [chr(65 + i) for i in range(bays_x + 1)]  # A, B, C, D...
-y_grid_labels = [str(j + 1) for j in range(bays_y + 1)]   # 1, 2, 3, 4...
+x_grid_labels = [chr(65 + i) for i in range(bays_x + 1)] 
+y_grid_labels = [str(j + 1) for j in range(bays_y + 1)]   
 
 # Custom Storey Names Input
 st.sidebar.subheader("Storey Names")
@@ -105,7 +105,6 @@ def_cover_slab = 20.0 if d_unit == 'mm' else 0.75
 bar_fmt = units['rebar_fmt']
 def_bar = units['default_rebar_size']
 
-# Session state initialization for editable tables
 if 'col_df' not in st.session_state or st.session_state.get('unit_choice_prev') != unit_choice:
     st.session_state.unit_choice_prev = unit_choice
     st.session_state.col_df = pd.DataFrame([
@@ -313,7 +312,6 @@ if run_analysis or 'analysis_results' in st.session_state:
         to_N_mm = 112984.8 if units['moment']=="kip·ft" else 112.985
         to_N = 4448.22 if units['force']=="kip" else 4.44822
 
-    # ACI Capacity Verification Helpers
     def check_beam_design(b, h, cov, n_top, s_top, n_bot, s_bot, M_u, V_u):
         d = h - cov - 10
         d_mm = d * to_mm
@@ -531,26 +529,7 @@ with sec_tab1:
         name="Tie / Stirrup"
     ))
 
-    # 135 Degree Hook Detail at Top-Left Corner (Pointing towards inner concrete core)
-    hook_len = min(b, h) * 0.15
-    # Standard 135 degree hook extends inward towards center (0,0) from (cx0, cy1)
-    hook_x1 = cx0 + hook_len * math.cos(math.radians(-45))
-    hook_y1 = cy1 + hook_len * math.sin(math.radians(-45))
-    
-    # Second leg for overlapping hook detail
-    hook_x2 = cx0 + (hook_len * 0.8) * math.cos(math.radians(-45)) + 4
-    hook_y2 = cy1 + (hook_len * 0.8) * math.sin(math.radians(-45)) - 4
-
-    fig_c.add_trace(go.Scatter(
-        x=[cx0, hook_x1, None, cx0, hook_x2],
-        y=[cy1, hook_y1, None, cy1, hook_y2],
-        mode='lines',
-        line=dict(color="red", width=3),
-        name="135° Seismic Hook"
-    ))
-
     # Calculate Main Rebar Coordinates to sit PERFECTLY INSIDE the Tie Inner Corner
-    # Estimate rebar radius for coordinate offset
     db = s_bar if bar_fmt != '#' else (s_bar / 8.0 * (25.4 if d_unit == 'mm' else 1.0))
     r_bar = db / 2.0 if d_unit == 'mm' else (db / 2.0)
     
@@ -559,6 +538,30 @@ with sec_tab1:
     rx1 = cx1 - r_bar
     ry0 = cy0 + r_bar
     ry1 = cy1 - r_bar
+
+    # Corrected 135 Degree Hook Detail at Top-Left Corner (Wrapping around the main rebar)
+    hook_len = min(b, h) * 0.15
+    
+    # Tangent points on the top-left rebar for hook lines pointing at -45 degrees
+    tx1 = rx0 + r_bar * math.cos(math.radians(45))
+    ty1 = ry1 + r_bar * math.sin(math.radians(45))
+    
+    tx2 = rx0 + r_bar * math.cos(math.radians(-135))
+    ty2 = ry1 + r_bar * math.sin(math.radians(-135))
+    
+    hook_x1 = tx1 + hook_len * math.cos(math.radians(-45))
+    hook_y1 = ty1 + hook_len * math.sin(math.radians(-45))
+    
+    hook_x2 = tx2 + hook_len * math.cos(math.radians(-45))
+    hook_y2 = ty2 + hook_len * math.sin(math.radians(-45))
+
+    fig_c.add_trace(go.Scatter(
+        x=[tx1, hook_x1, None, tx2, hook_x2],
+        y=[ty1, hook_y1, None, ty2, hook_y2],
+        mode='lines',
+        line=dict(color="red", width=3),
+        name="135° Seismic Hook"
+    ))
 
     rebar_x, rebar_y = [], []
     corners = [(rx0, ry0), (rx0, ry1), (rx1, ry0), (rx1, ry1)]
@@ -614,21 +617,6 @@ with sec_tab2:
         name="Stirrup"
     ))
     
-    # 135 Hook for Beam (Inward Direction)
-    hook_len = min(b, h) * 0.15
-    hook_x1 = bx0 + hook_len * math.cos(math.radians(-45))
-    hook_y1 = by1 + hook_len * math.sin(math.radians(-45))
-    hook_x2 = bx0 + (hook_len * 0.8) * math.cos(math.radians(-45)) + 4
-    hook_y2 = by1 + (hook_len * 0.8) * math.sin(math.radians(-45)) - 4
-
-    fig_b.add_trace(go.Scatter(
-        x=[bx0, hook_x1, None, bx0, hook_x2],
-        y=[by1, hook_y1, None, by1, hook_y2],
-        mode='lines',
-        line=dict(color="green", width=3),
-        name="135° Hook"
-    ))
-
     # Top & Bottom Rebar Inward Offset Positioning
     db_top = s_top if bar_fmt != '#' else (s_top / 8.0 * (25.4 if d_unit == 'mm' else 1.0))
     db_bot = s_bot if bar_fmt != '#' else (s_bot / 8.0 * (25.4 if d_unit == 'mm' else 1.0))
@@ -637,10 +625,36 @@ with sec_tab2:
 
     top_x = np.linspace(bx0 + r_top, bx1 - r_top, n_top) if n_top > 1 else [0]
     top_y = [by1 - r_top] * len(top_x)
-    fig_b.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='blue', size=14), name=f'Top Rebar: {n_top} - {s_top} {bar_fmt}'))
-
+    
     bot_x = np.linspace(bx0 + r_bot, bx1 - r_bot, n_bot) if n_bot > 1 else [0]
     bot_y = [by0 + r_bot] * len(bot_x)
+
+    # Corrected 135 Hook for Beam (Inward Direction) based on top-left rebar
+    hook_len = min(b, h) * 0.15
+    bx_center = top_x[0] if n_top > 0 else bx0 + r_top
+    by_center = top_y[0] if len(top_y) > 0 else by1 - r_top
+
+    tx1_b = bx_center + r_top * math.cos(math.radians(45))
+    ty1_b = by_center + r_top * math.sin(math.radians(45))
+
+    tx2_b = bx_center + r_top * math.cos(math.radians(-135))
+    ty2_b = by_center + r_top * math.sin(math.radians(-135))
+
+    hook_x1_b = tx1_b + hook_len * math.cos(math.radians(-45))
+    hook_y1_b = ty1_b + hook_len * math.sin(math.radians(-45))
+
+    hook_x2_b = tx2_b + hook_len * math.cos(math.radians(-45))
+    hook_y2_b = ty2_b + hook_len * math.sin(math.radians(-45))
+
+    fig_b.add_trace(go.Scatter(
+        x=[tx1_b, hook_x1_b, None, tx2_b, hook_x2_b],
+        y=[ty1_b, hook_y1_b, None, ty2_b, hook_y2_b],
+        mode='lines',
+        line=dict(color="green", width=3),
+        name="135° Hook"
+    ))
+
+    fig_b.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='blue', size=14), name=f'Top Rebar: {n_top} - {s_top} {bar_fmt}'))
     fig_b.add_trace(go.Scatter(x=bot_x, y=bot_y, mode='markers', marker=dict(color='red', size=14), name=f'Bottom Rebar: {n_bot} - {s_bot} {bar_fmt}'))
 
     fig_b.update_layout(
