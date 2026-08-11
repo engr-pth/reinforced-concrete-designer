@@ -4,8 +4,8 @@ import plotly.graph_objects as go
 
 st.set_page_config(page_title="Advanced 3D RC Building Design App", layout="wide")
 
-st.title("🏛️ Advanced 3D RC Building Analysis & Section Manager (ACI 318)")
-st.caption("Custom Grid Names, Storey Titles, Material Properties & Structural Section Definition Engine")
+st.title("🏛️ Advanced 3D RC Building Analysis & Load Combinations (ACI 318-19)")
+st.caption("Custom Grid Names, Storey Titles, Material Properties, Load Categorization & ACI Load Combinations Engine")
 
 # ==========================================
 # 1. SIDEBAR: BUILDING GEOMETRY & GRID NAMES
@@ -76,7 +76,6 @@ slab_sections = {
     "S200": {"t": 200, "cover": 20}
 }
 
-# Display Calculated Properties Function
 def calc_rect_properties(b, h):
     A = b * h                        # Area (mm2)
     Ixx = (b * h**3) / 12.0          # Inertia X (mm4)
@@ -86,7 +85,6 @@ def calc_rect_properties(b, h):
     return A, Ixx, Iyy, Zxx, Zyy
 
 def calc_slab_properties(t):
-    # Per 1 meter width
     b = 1000.0
     A = b * t
     I = (b * t**3) / 12.0
@@ -94,7 +92,51 @@ def calc_slab_properties(t):
     return A, I, Z
 
 # ==========================================
-# MAIN INTERFACE: SECTION PROPERTY TABLES
+# 4. LOAD DEFINITION & CATEGORIZATION
+# ==========================================
+st.sidebar.header("4. Load Definition & Categorization")
+
+# Slab Self Weight (Auto-calculated based on selected slab)
+slab_thick_mm = slab_sections["S150"]["t"]
+self_weight_slab = (slab_thick_mm / 1000.0) * 24.0  # kN/m²
+
+st.sidebar.caption(f"Calculated Slab Self Weight (24 kN/m³): {self_weight_slab:.2f} kN/m²")
+
+# Specific Loads Input
+finishing_val = st.sidebar.number_input("Floor Finishing Load (kN/m²)", value=1.2)
+finishing_cat = st.sidebar.selectbox("Finishing Load Type", ["Superimposed Dead Load (D)", "Live Load (L)"], index=0)
+
+wall_val = st.sidebar.number_input("Wall / Partition Load (kN/m²)", value=1.5)
+wall_cat = st.sidebar.selectbox("Wall Load Type", ["Superimposed Dead Load (D)", "Live Load (L)"], index=0)
+
+water_val = st.sidebar.number_input("Water Tank / Fluid Load (kN/m²)", value=2.0)
+water_cat = st.sidebar.selectbox("Water Load Type", ["Superimposed Dead Load (D)", "Live Load (L)", "Fluid Load (F)"], index=2)
+
+live_val = st.sidebar.number_input("Occupancy Live Load (kN/m²)", value=2.0)
+live_cat = st.sidebar.selectbox("Live Load Type", ["Live Load (L)", "Superimposed Dead Load (D)"], index=0)
+
+# Calculate Total Dead (D), Total Live (L), Total Fluid (F)
+total_D = self_weight_slab
+total_L = 0.0
+total_F = 0.0
+
+loads_list = [
+    (finishing_val, finishing_cat),
+    (wall_val, wall_cat),
+    (water_val, water_cat),
+    (live_val, live_cat)
+]
+
+for val, cat in loads_list:
+    if "Dead" in cat:
+        total_D += val
+    elif "Live" in cat:
+        total_L += val
+    elif "Fluid" in cat:
+        total_F += val
+
+# ==========================================
+# MAIN INTERFACE: SECTION TABLES & LOAD SUMMARY
 # ==========================================
 st.subheader("📋 Pre-Defined Member Section Properties")
 
@@ -131,7 +173,35 @@ with tab3:
     st.dataframe(slab_data, use_container_width=True)
 
 # ==========================================
-# 4. STOREY-WISE MEMBER ASSIGNMENT
+# 5. ACI 318-19 LOAD COMBINATIONS
+# ==========================================
+st.markdown("---")
+st.subheader("⚖️ ACI 318-19 Ultimate Load Combinations Analysis")
+
+col_l1, col_l2 = st.columns([1, 1.2])
+
+with col_l1:
+    st.info("### Unfactored Load Totals")
+    st.write(f"- **Total Dead Load (D):** {total_D:.2f} kN/m² *(Slab Self Weight + SDL)*")
+    st.write(f"- **Total Live Load (L):** {total_L:.2f} kN/m²")
+    st.write(f"- **Total Fluid Load (F):** {total_F:.2f} kN/m²")
+
+# ACI 318-19 Load Combination Equations (Chapter 5)
+U1 = 1.4 * total_D + 1.4 * total_F
+U2 = 1.2 * total_D + 1.6 * total_L + 1.2 * total_F
+U3 = 1.2 * total_D + 1.0 * total_L + 1.2 * total_F  # Simplified gravity check
+
+governing_U = max(U1, U2, U3)
+
+with col_l2:
+    st.success("### ACI 318-19 Factored Load Combinations (wu)")
+    st.write(f"1. **U1 = 1.4D + 1.4F:** {U1:.2f} kN/m²")
+    st.write(f"2. **U2 = 1.2D + 1.6L + 1.2F:** {U2:.2f} kN/m²")
+    st.write(f"3. **U3 = 1.2D + 1.0L + 1.2F:** {U3:.2f} kN/m²")
+    st.markdown(f"👉 **Governing Design Load (wu):** <h3 style='color:red;'>{governing_U:.2f} kN/m²</h3>", unsafe_allow_allowed_html=True)
+
+# ==========================================
+# 6. STOREY-WISE MEMBER ASSIGNMENT
 # ==========================================
 st.markdown("---")
 st.subheader("⚙️ Frame Member Assignment per Storey")
@@ -156,7 +226,7 @@ with c_a3:
         slab_assign[k] = st.selectbox(f"Slab Level {storey_names[k]}", list(slab_sections.keys()), index=1)
 
 # ==========================================
-# 5. 3D VISUALIZATION WITH LABELS & DIMENSIONS
+# 7. 3D VISUALIZATION WITH LABELS & DIMENSIONS
 # ==========================================
 st.markdown("---")
 st.subheader("🌐 3D Building Model with Dimensions, Grid & Storey Labels")
@@ -203,7 +273,7 @@ for k in range(1, num_stories + 1):
                 showlegend=False
             ))
 
-# 1. Add Grid Line Labels (A, B, C... / 1, 2, 3...) at base
+# Grid Line Labels
 for i, x in enumerate(x_coords):
     fig.add_trace(go.Scatter3d(
         x=[x], y=[-0.8], z=[0],
@@ -218,7 +288,7 @@ for j, y in enumerate(y_coords):
         textfont=dict(size=14, color='darkblue'), showlegend=False
     ))
 
-# 2. Add Storey Name Labels along Z-axis
+# Storey Name Labels
 for k, z in enumerate(z_coords):
     fig.add_trace(go.Scatter3d(
         x=[-1.5], y=[-1.5], z=[z],
@@ -226,7 +296,7 @@ for k, z in enumerate(z_coords):
         textfont=dict(size=12, color='black'), showlegend=False
     ))
 
-# 3. Add Overall Building Dimension Indicators (L, B, H)
+# Dimension Indicators
 fig.add_trace(go.Scatter3d(
     x=[0, L_total], y=[-2, -2], z=[0, 0],
     mode='lines+text', line=dict(color='purple', width=4, dash='dash'),
