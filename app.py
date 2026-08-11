@@ -198,7 +198,7 @@ with col_l2:
     st.write(f"1. **U1 = 1.4D + 1.4F:** {U1:.2f} kN/m²")
     st.write(f"2. **U2 = 1.2D + 1.6L + 1.2F:** {U2:.2f} kN/m²")
     st.write(f"3. **U3 = 1.2D + 1.0L + 1.2F:** {U3:.2f} kN/m²")
-    st.markdown(f"👉 **Governing Design Load (wu):** <h3 style='color:red;'>{governing_U:.2f} kN/m²</h3>", unsafe_allow_allowed_html=True)
+    st.markdown(f"👉 **Governing Design Load (wu):** :red[{governing_U:.2f} kN/m²]")
 
 # ==========================================
 # 6. STOREY-WISE MEMBER ASSIGNMENT
