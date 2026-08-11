@@ -93,7 +93,8 @@ fys = st.sidebar.number_input(f"Stirrup/Tie Rebar Strength fys ({units['stress']
 # ==========================================
 st.subheader("📋 Pre-Defined Member Section Properties (Editable Table)")
 
-def_col_w = 300.0 if d_unit == 'mm' else 12.0
+def_col_w = 400.0 if d_unit == 'mm' else 16.0
+def_col_h = 450.0 if d_unit == 'mm' else 18.0
 def_beam_w = 230.0 if d_unit == 'mm' else 10.0
 def_beam_h = 450.0 if d_unit == 'mm' else 18.0
 def_slab_t = 150.0 if d_unit == 'mm' else 6.0
@@ -109,8 +110,8 @@ def_bar = units['default_rebar_size']
 if 'col_df' not in st.session_state or st.session_state.get('unit_choice_prev') != unit_choice:
     st.session_state.unit_choice_prev = unit_choice
     st.session_state.col_df = pd.DataFrame([
-        {"Section Name": f"C_{int(def_col_w)}x{int(def_col_w)}", f"b ({d_unit})": float(def_col_w), f"h ({d_unit})": float(def_col_w), f"Cover ({d_unit})": float(def_cover_col), "Rebar Count": 8, f"Rebar Size ({bar_fmt})": def_bar},
-        {"Section Name": f"C_{int(def_col_w+100)}x{int(def_col_w+100)}", f"b ({d_unit})": float(def_col_w + (100 if d_unit=='mm' else 4)), f"h ({d_unit})": float(def_col_w + (100 if d_unit=='mm' else 4)), f"Cover ({d_unit})": float(def_cover_col), "Rebar Count": 10, f"Rebar Size ({bar_fmt})": def_bar}
+        {"Section Name": f"C_{int(def_col_w)}x{int(def_col_h)}", f"b ({d_unit})": float(def_col_w), f"h ({d_unit})": float(def_col_h), f"Cover ({d_unit})": float(def_cover_col), "Rebar Count": 8, f"Rebar Size ({bar_fmt})": def_bar},
+        {"Section Name": f"C_{int(def_col_w+100)}x{int(def_col_h+100)}", f"b ({d_unit})": float(def_col_w + (100 if d_unit=='mm' else 4)), f"h ({d_unit})": float(def_col_h + (100 if d_unit=='mm' else 4)), f"Cover ({d_unit})": float(def_cover_col), "Rebar Count": 10, f"Rebar Size ({bar_fmt})": def_bar}
     ])
 
 if 'beam_df' not in st.session_state or st.session_state.get('unit_choice_prev_b') != unit_choice:
@@ -501,7 +502,7 @@ if run_analysis or 'analysis_results' in st.session_state:
     st.dataframe(style_func(highlight_status, subset=['Status']), use_container_width=True)
 
 # ==========================================
-# 8. CROSS SECTION VISUALIZATION
+# 8. CROSS SECTION VISUALIZATION (UPDATED FOR 135° HOOK & BAR ENCLOSURE)
 # ==========================================
 st.markdown("---")
 st.subheader("📐 Member Cross-Section Drawings & Rebar Layout")
@@ -514,41 +515,58 @@ with sec_tab1:
     b, h, cov = col_p['b'], col_p['h'], col_p['cover']
     n_bar, s_bar = col_p['n_bar'], col_p['s_bar']
 
+    # Convert bar size approximation to coordinate system offset
+    r_bar = (s_bar / 2.0) if d_unit == 'mm' else (s_bar * 25.4 / 2.0)
+
     fig_c = go.Figure()
     # Concrete Outer Boundary
-    fig_c.add_shape(type="rect", x0=-b/2, y0=-h/2, x1=b/2, y1=h/2, line=dict(color="gray", width=3), fillcolor="rgba(200,200,200,0.3)")
+    fig_c.add_shape(type="rect", x0=-b/2, y0=-h/2, x1=b/2, y1=h/2, line=dict(color="gray", width=3), fillcolor="rgba(220,220,220,0.3)")
     
-    # Tie / Stirrup Line with 135-degree Hook
+    # Outer Tie / Stirrup Line (Sits exactly at concrete cover boundary)
     cx0, cx1 = -b/2 + cov, b/2 - cov
     cy0, cy1 = -h/2 + cov, h/2 - cov
     
-    # Tie closed loop
+    # Main Rebars Placed INSIDE the Stirrup (Contacting inner face of Stirrup)
+    mx0, mx1 = cx0 + r_bar, cx1 - r_bar
+    my0, my1 = cy0 + r_bar, cy1 - r_bar
+
+    # Tie Loop with 135 Degree Hook Extension
+    hook_len = min(b, h) * 0.15
+    # 135-degree interior hook line coordinates (top-left corner)
+    hk_x = cx0 + hook_len * math.cos(math.radians(-45))
+    hk_y = cy1 - hook_len * math.sin(math.radians(-45))
+    
+    hk_x2 = cx0 + (hook_len + 8) * math.cos(math.radians(-45))
+    hk_y2 = cy1 - (hook_len + 8) * math.sin(math.radians(-45))
+
+    # Outer Stirrup Closed Loop
     fig_c.add_trace(go.Scatter(
         x=[cx0, cx1, cx1, cx0, cx0],
-        y=[cy0, cy0, cy1, cy1, cy0],
+        y=[cy1, cy1, cy0, cy0, cy1],
         mode='lines',
-        line=dict(color="red", width=2, dash="dash"),
+        line=dict(color="red", width=3),
         name="Tie / Stirrup"
     ))
 
-    # 135 Degree Hook Detail at Top-Left Corner
-    hook_len = min(b, h) * 0.08
-    hook_x1 = cx0 + hook_len * math.cos(math.radians(-45))
-    hook_y1 = cy1 - hook_len * math.sin(math.radians(-45))
-    hook_x2 = cx0 + hook_len * math.cos(math.radians(-45)) - 4
-    hook_y2 = cy1 - hook_len * math.sin(math.radians(-45)) - 8
-
+    # 135° Seismic Hook Details (2 overlapping ends at corner)
     fig_c.add_trace(go.Scatter(
-        x=[cx0, hook_x1, hook_x2],
-        y=[cy1, hook_y1, hook_y2],
+        x=[cx0, hk_x],
+        y=[cy1 - 5, hk_y - 5],
         mode='lines',
-        line=dict(color="red", width=2),
-        name="135° Seismic Hook"
+        line=dict(color="red", width=3),
+        name="135° Hook End 1"
+    ))
+    fig_c.add_trace(go.Scatter(
+        x=[cx0 + 5, hk_x2],
+        y=[cy1, hk_y2],
+        mode='lines',
+        line=dict(color="red", width=3),
+        name="135° Hook End 2"
     ))
 
-    # Main Rebars
+    # Main Rebars Calculation
     rebar_x, rebar_y = [], []
-    corners = [(cx0, cy0), (cx0, cy1), (cx1, cy0), (cx1, cy1)]
+    corners = [(mx0, my0), (mx0, my1), (mx1, my0), (mx1, my1)]
     for x_p, y_p in corners:
         rebar_x.append(x_p)
         rebar_y.append(y_p)
@@ -557,24 +575,24 @@ with sec_tab1:
     if rem > 0:
         per_side = rem // 4
         for i in range(1, per_side + 1):
-            rx = cx0 + i * (cx1 - cx0) / (per_side + 1)
+            rx = mx0 + i * (mx1 - mx0) / (per_side + 1)
             rebar_x.extend([rx, rx])
-            rebar_y.extend([cy0, cy1])
-            ry = cy0 + i * (cy1 - cy0) / (per_side + 1)
-            rebar_x.extend([cx0, cx1])
+            rebar_y.extend([my0, my1])
+            ry = my0 + i * (my1 - my0) / (per_side + 1)
+            rebar_x.extend([mx0, mx1])
             rebar_y.extend([ry, ry])
 
     fig_c.add_trace(go.Scatter(
         x=rebar_x, y=rebar_y, mode='markers',
-        marker=dict(color='black', size=14),
-        name=f'Main Rebar ({n_bar} - {s_bar} {bar_fmt})'
+        marker=dict(color='black', size=16),
+        name=f'Main Bars ({n_bar} - {s_bar} {bar_fmt})'
     ))
 
     fig_c.update_layout(
         title=f"Column Section: {sel_col_sec} ({b:.1f} x {h:.1f} {d_unit})",
-        xaxis=dict(title=f"Width b ({d_unit})", range=[-b*0.8, b*0.8], zeroline=False),
-        yaxis=dict(title=f"Height h ({d_unit})", range=[-h*0.8, h*0.8], scaleanchor="x", scaleratio=1),
-        width=550, height=450,
+        xaxis=dict(title=f"Width b ({d_unit})", range=[-b*0.7, b*0.7], zeroline=False),
+        yaxis=dict(title=f"Height h ({d_unit})", range=[-h*0.7, h*0.7], scaleanchor="x", scaleratio=1),
+        width=550, height=480,
         showlegend=True
     )
     st.plotly_chart(fig_c, use_container_width=True)
@@ -586,42 +604,67 @@ with sec_tab2:
     n_top, s_top = beam_p['n_top'], beam_p['s_top']
     n_bot, s_bot = beam_p['n_bot'], beam_p['s_bot']
 
+    r_top = (s_top / 2.0) if d_unit == 'mm' else (s_top * 25.4 / 2.0)
+    r_bot = (s_bot / 2.0) if d_unit == 'mm' else (s_bot * 25.4 / 2.0)
+
     fig_b = go.Figure()
-    fig_b.add_shape(type="rect", x0=-b/2, y0=0, x1=b/2, y1=h, line=dict(color="gray", width=3), fillcolor="rgba(200,200,200,0.3)")
+    # Concrete Outer Boundary
+    fig_b.add_shape(type="rect", x0=-b/2, y0=0, x1=b/2, y1=h, line=dict(color="gray", width=3), fillcolor="rgba(220,220,220,0.3)")
     
-    # Beam Stirrup with 135 Hook
+    # Beam Stirrup (Outer Box)
     bx0, bx1 = -b/2 + cov, b/2 - cov
     by0, by1 = cov, h - cov
+    
     fig_b.add_trace(go.Scatter(
         x=[bx0, bx1, bx1, bx0, bx0],
-        y=[by0, by0, by1, by1, by0],
+        y=[by1, by1, by0, by0, by1],
         mode='lines',
-        line=dict(color="green", width=2, dash="dash"),
+        line=dict(color="red", width=3),
         name="Stirrup"
     ))
     
-    hook_len = min(b, h) * 0.08
+    # 135° Hook Details at Top Left
+    hook_len = min(b, h) * 0.15
+    hk_x = bx0 + hook_len * math.cos(math.radians(-45))
+    hk_y = by1 - hook_len * math.sin(math.radians(-45))
+    hk_x2 = bx0 + (hook_len + 8) * math.cos(math.radians(-45))
+    hk_y2 = by1 - (hook_len + 8) * math.sin(math.radians(-45))
+
     fig_b.add_trace(go.Scatter(
-        x=[bx0, bx0 + hook_len*0.7],
-        y=[by1, by1 - hook_len*0.7],
+        x=[bx0, hk_x],
+        y=[by1 - 5, hk_y - 5],
         mode='lines',
-        line=dict(color="green", width=2),
-        name="135° Hook"
+        line=dict(color="red", width=3),
+        name="135° Hook End 1"
+    ))
+    fig_b.add_trace(go.Scatter(
+        x=[bx0 + 5, hk_x2],
+        y=[by1, hk_y2],
+        mode='lines',
+        line=dict(color="red", width=3),
+        name="135° Hook End 2"
     ))
 
-    top_x = np.linspace(-b/2 + cov, b/2 - cov, n_top) if n_top > 1 else [0]
-    top_y = [h - cov] * len(top_x)
-    fig_b.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='blue', size=14), name=f'Top Rebar: {n_top} - {s_top} {bar_fmt}'))
+    # Top & Bottom Rebars placed strictly INSIDE Stirrup
+    mx0_top, mx1_top = bx0 + r_top, bx1 - r_top
+    my_top = by1 - r_top
 
-    bot_x = np.linspace(-b/2 + cov, b/2 - cov, n_bot) if n_bot > 1 else [0]
-    bot_y = [cov] * len(bot_x)
-    fig_b.add_trace(go.Scatter(x=bot_x, y=bot_y, mode='markers', marker=dict(color='red', size=14), name=f'Bottom Rebar: {n_bot} - {s_bot} {bar_fmt}'))
+    mx0_bot, mx1_bot = bx0 + r_bot, bx1 - r_bot
+    my_bot = by0 + r_bot
+
+    top_x = np.linspace(mx0_top, mx1_top, n_top) if n_top > 1 else [0]
+    top_y = [my_top] * len(top_x)
+    fig_b.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='black', size=16), name=f'Top Rebar: {n_top} - {s_top} {bar_fmt}'))
+
+    bot_x = np.linspace(mx0_bot, mx1_bot, n_bot) if n_bot > 1 else [0]
+    bot_y = [my_bot] * len(bot_x)
+    fig_b.add_trace(go.Scatter(x=bot_x, y=bot_y, mode='markers', marker=dict(color='black', size=16), name=f'Bottom Rebar: {n_bot} - {s_bot} {bar_fmt}'))
 
     fig_b.update_layout(
         title=f"Beam Section: {sel_beam_sec} (b={b:.1f}, h={h:.1f} {d_unit})",
-        xaxis=dict(title=f"Width b ({d_unit})", range=[-b*0.8, b*0.8], zeroline=False),
+        xaxis=dict(title=f"Width b ({d_unit})", range=[-b*0.7, b*0.7], zeroline=False),
         yaxis=dict(title=f"Height h ({d_unit})", range=[-h*0.2, h*1.2], scaleanchor="x", scaleratio=1),
-        width=550, height=450,
+        width=550, height=480,
         showlegend=True
     )
     st.plotly_chart(fig_b, use_container_width=True)
@@ -634,18 +677,21 @@ with sec_tab3:
     n_bot, s_bot = slab_p['n_bot'], slab_p['s_bot']
     w_strip = 1000.0 if d_unit == 'mm' else 12.0
 
+    r_top = (s_top / 2.0) if d_unit == 'mm' else (s_top * 25.4 / 2.0)
+    r_bot = (s_bot / 2.0) if d_unit == 'mm' else (s_bot * 25.4 / 2.0)
+
     fig_s = go.Figure()
     # Slab Concrete Boundary
-    fig_s.add_shape(type="rect", x0=0, y0=0, x1=w_strip, y1=t, line=dict(color="gray", width=3), fillcolor="rgba(200,200,200,0.3)")
+    fig_s.add_shape(type="rect", x0=0, y0=0, x1=w_strip, y1=t, line=dict(color="gray", width=3), fillcolor="rgba(220,220,220,0.3)")
 
-    # Rebars shifted inside cover (does not touch outer edge)
-    top_x = np.linspace(cov + 10, w_strip - cov - 10, n_top) if n_top > 1 else [w_strip/2]
-    top_y = [t - cov] * len(top_x)
-    fig_s.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='purple', size=12), name=f'Top Rebar: {n_top} - {s_top} {bar_fmt}/m'))
+    # Rebars shifted inside cover
+    top_x = np.linspace(cov + r_top, w_strip - cov - r_top, n_top) if n_top > 1 else [w_strip/2]
+    top_y = [t - cov - r_top] * len(top_x)
+    fig_s.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='purple', size=14), name=f'Top Rebar: {n_top} - {s_top} {bar_fmt}/m'))
 
-    bot_x = np.linspace(cov + 10, w_strip - cov - 10, n_bot) if n_bot > 1 else [w_strip/2]
-    bot_y = [cov] * len(bot_x)
-    fig_s.add_trace(go.Scatter(x=bot_x, y=bot_y, mode='markers', marker=dict(color='orange', size=12), name=f'Bottom Rebar: {n_bot} - {s_bot} {bar_fmt}/m'))
+    bot_x = np.linspace(cov + r_bot, w_strip - cov - r_bot, n_bot) if n_bot > 1 else [w_strip/2]
+    bot_y = [cov + r_bot] * len(bot_x)
+    fig_s.add_trace(go.Scatter(x=bot_x, y=bot_y, mode='markers', marker=dict(color='orange', size=14), name=f'Bottom Rebar: {n_bot} - {s_bot} {bar_fmt}/m'))
 
     fig_s.update_layout(
         title=f"Slab Section: {sel_slab_sec} (Thickness t={t:.1f} {d_unit}, Strip={w_strip:.0f} {d_unit})",
