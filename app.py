@@ -1,179 +1,148 @@
 import streamlit as st
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
-st.set_page_config(page_title="3-Storey RC Building Auto-Design App", layout="wide")
+st.set_page_config(page_title="3D Structural Frame Auto-Design App", layout="wide")
 
-st.title("🏗️ 3-Storey RC Building Auto-Design Tool (ACI 318-19)")
-st.caption("Building Geometry, Load Takedown, Structural Analysis & Member Design Engine")
+st.title("🏛️ 3D RC Building Analysis & Visualization (ACI 318)")
+st.caption("Interactive 3D Frame Geometry, 3D Load Takedown & Member Auto-Design Engine")
 
 # ==========================================
-# 1. SIDEBAR: GEOMETRY & MATERIAL INPUTS
+# 1. SIDEBAR: 3D GEOMETRY & LOADS
 # ==========================================
-st.sidebar.header("1. Geometry & Material Inputs")
+st.sidebar.header("1. 3D Building Geometry")
 
-# Building Geometry
-num_stories = 3
-story_height = st.sidebar.number_input("Story Height (m)", value=3.5, step=0.5)
-span_x = st.sidebar.number_input("Bay Width - Span X (m)", value=6.0, step=0.5)
-bay_y = st.sidebar.number_input("Tributary Length - Y Direction (m)", value=5.0, step=0.5)
+num_stories = st.sidebar.number_input("Number of Stories", value=3, min_value=1, max_value=10)
+story_height = st.sidebar.number_input("Story Height (m)", value=3.5)
 
-# Material Properties
-st.sidebar.subheader("Material Properties")
+bays_x = st.sidebar.number_input("Number of Bays (X-Dir)", value=2, min_value=1)
+span_x = st.sidebar.number_input("Bay Span X (m)", value=6.0)
+
+bays_y = st.sidebar.number_input("Number of Bays (Y-Dir)", value=2, min_value=1)
+span_y = st.sidebar.number_input("Bay Span Y (m)", value=5.0)
+
+st.sidebar.header("2. Material & Sizing")
 fc = st.sidebar.number_input("Concrete Strength f'c (MPa)", value=28.0)
-fy = st.sidebar.number_input("Steel Yield Strength fy (MPa)", value=420.0)
-E_conc = 4700 * np.sqrt(fc) * 1e3  # kPa (ACI 318-19 Eq.)
+fy = st.sidebar.number_input("Steel Strength fy (MPa)", value=420.0)
 
-# Section Sizing (Initial)
-st.sidebar.subheader("Member Cross-Sections")
+# Section sizes
 b_beam = st.sidebar.number_input("Beam Width b (mm)", value=300)
 h_beam = st.sidebar.number_input("Beam Depth h (mm)", value=500)
-cc_beam = st.sidebar.number_input("Concrete Cover (mm)", value=40)
+b_col = st.sidebar.number_input("Column Size B (mm)", value=400)
+h_col = st.sidebar.number_input("Column Size H (mm)", value=400)
+
+st.sidebar.header("3. Area Loading (kN/m²)")
+dead_area = st.sidebar.number_input("Superimposed Dead Load (kN/m²)", value=1.5) + (0.15 * 24.0)  # Including 150mm slab self-weight
+live_area = st.sidebar.number_input("Live Load (kN/m²)", value=2.0)
 
 # ==========================================
-# 2. SIDEBAR: LOAD TAKEDOWN INPUTS
+# 2. 3D VISUALIZATION ENGINE (Plotly)
 # ==========================================
-st.sidebar.header("2. Loading Conditions")
+fig = go.Figure()
 
-slab_thickness = st.sidebar.number_input("Slab Thickness (mm)", value=150) / 1000.0  # m
-sdl = st.sidebar.number_input("Superimposed Dead Load - SDL (kN/m²)", value=1.5)
-live_load = st.sidebar.number_input("Live Load - LL (kN/m²)", value=2.0)
-wind_load_per_floor = st.sidebar.number_input("Lateral Wind/Earthquake Force per Floor (kN)", value=25.0)
+# Generate 3D Grid Nodes & Draw Members
+x_coords = [i * span_x for i in range(bays_x + 1)]
+y_coords = [j * span_y for j in range(bays_y + 1)]
+z_coords = [k * story_height for k in range(num_stories + 1)]
 
-# Load Takedown Calculations
-conc_unit_weight = 24.0  # kN/m³
-slab_self_weight = slab_thickness * conc_unit_weight  # kN/m²
+# Draw Columns
+for x in x_coords:
+    for y in y_coords:
+        for k in range(num_stories):
+            fig.add_trace(go.Scatter3d(
+                x=[x, x], y=[y, y], z=[z_coords[k], z_coords[k+1]],
+                mode='lines', line=dict(color='blue', width=6),
+                showlegend=False
+            ))
 
-total_dead_load_area = slab_self_weight + sdl  # kN/m²
-dead_load_beam = total_dead_load_area * bay_y  # Distributed load on beam (kN/m)
-live_load_beam = live_load * bay_y              # Distributed load on beam (kN/m)
+# Draw Beams (X-direction)
+for z in z_coords[1:]:
+    for y in y_coords:
+        for i in range(bays_x):
+            fig.add_trace(go.Scatter3d(
+                x=[x_coords[i], x_coords[i+1]], y=[y, y], z=[z, z],
+                mode='lines', line=dict(color='red', width=4),
+                showlegend=False
+            ))
 
-# ACI 318 Load Combinations for Beam Analysis
-# Comb 1: 1.4D
-# Comb 2: 1.2D + 1.6L
-w_u_comb1 = 1.4 * dead_load_beam
-w_u_comb2 = 1.2 * dead_load_beam + 1.6 * live_load_beam
-w_u_design = max(w_u_comb1, w_u_comb2)  # Governing Gravity UDL (kN/m)
+# Draw Beams (Y-direction)
+for z in z_coords[1:]:
+    for x in x_coords:
+        for j in range(bays_y):
+            fig.add_trace(go.Scatter3d(
+                x=[x, x], y=[y_coords[j], y_coords[j+1]], z=[z, z],
+                mode='lines', line=dict(color='green', width=4),
+                showlegend=False
+            ))
+
+# Add Support Points at Base
+base_x, base_y, base_z = np.meshgrid(x_coords, y_coords, [0])
+fig.add_trace(go.Scatter3d(
+    x=base_x.flatten(), y=base_y.flatten(), z=base_z.flatten(),
+    mode='markers', marker=dict(symbol='square', size=8, color='black'),
+    name='Supports'
+))
+
+fig.update_layout(
+    scene=dict(
+        xaxis_title='X Axis (m)',
+        yaxis_title='Y Axis (m)',
+        zaxis_title='Z Axis (Height - m)',
+        aspectmode='data'
+    ),
+    margin=dict(l=0, r=0, b=0, t=30),
+    height=550
+)
+
+# Display 3D Layout
+st.subheader("🌐 Interactive 3D Frame View")
+st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# MAIN PAGE: DISPLAY SUMMARY & STRUCTURE
+# 3. 3D LOAD TAKEDOWN & CRITICAL DESIGN
 # ==========================================
-col1, col2 = st.columns([1, 1])
+st.markdown("---")
+st.subheader("📊 Load Takedown & Critical Column/Beam Design")
+
+# Tributary Area Calculation for Interior Column
+trib_area_col = span_x * span_y
+w_u_area = 1.2 * dead_area + 1.6 * live_area  # kN/m²
+
+# Cumulative Load on Ground Floor Interior Column
+Pu_ground_col = w_u_area * trib_area_col * num_stories
+
+# Critical Beam Design Force (Span X)
+w_u_beam = w_u_area * span_y  # Distributed Load on Beam (kN/m)
+Mu_beam = (w_u_beam * span_x**2) / 10.0  # Approx Bending Moment (kNm)
+
+col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("📋 Load Takedown Summary")
-    st.write(f"- **Slab Self-Weight:** {slab_self_weight:.2f} kN/m²")
-    st.write(f"- **Total Dead Load (Area):** {total_dead_load_area:.2f} kN/m²")
-    st.write(f"- **Tributary Width (Y-Dir):** {bay_y:.2f} m")
-    st.write(f"- **Beam Dead Load (UDL):** {dead_load_beam:.2f} kN/m")
-    st.write(f"- **Beam Live Load (UDL):** {live_load_beam:.2f} kN/m")
-    st.info(f"**Governing Ultimate Load (1.2D + 1.6L): {w_u_design:.2f} kN/m**")
+    st.info("### 🟢 Ground Floor Interior Column")
+    st.write(f"- **Tributary Area:** {trib_area_col:.2f} m²")
+    st.write(f"- **Ultimate Axial Load (Pu):** **{Pu_ground_col:.2f} kN**")
+    
+    # ACI Column Axial Capacity Check
+    Ag = b_col * h_col  # mm²
+    phi_Pn_max = 0.65 * 0.80 * (0.85 * fc * (Ag - 0.01*Ag) + fy * 0.01*Ag) / 1000.0  # kN (Assuming 1% steel)
+    
+    st.write(f"- **Nominal Capacity (φPn,max):** {phi_Pn_max:.2f} kN")
+    if Pu_ground_col <= phi_Pn_max:
+        st.success("✅ Column Size is ADEQUATE for Axial Compression.")
+    else:
+        st.error("❌ Column Size is TOO SMALL! Increase B x H dimensions.")
 
 with col2:
-    st.subheader("🖼️ Structural Grid & Elevation")
-    fig_grid, ax_grid = plt.subplots(figsize=(5, 4))
+    st.info("### 🔴 Critical Beam Section (Ground/1st Floor)")
+    st.write(f"- **Beam Distributed Load (wu):** {w_u_beam:.2f} kN/m")
+    st.write(f"- **Max Design Moment (Mu):** **{Mu_beam:.2f} kNm**")
     
-    # Plot frame grid
-    X = [0, span_x]
-    for s in range(num_stories + 1):
-        Y = s * story_height
-        ax_grid.plot(X, [Y, Y], 'k-', lw=2)  # Beams
+    # Simple Flexure Steel Calculation
+    d_eff = h_beam - 55  # mm
+    Rn = (Mu_beam * 1e6) / (0.9 * b_beam * d_eff**2)
+    rho = (0.85 * fc / fy) * (1 - np.sqrt(max(0, 1 - (2 * Rn) / (0.85 * fc))))
+    As_req = max(rho, 1.4/fy) * b_beam * d_eff
     
-    for x_pos in X:
-        ax_grid.plot([x_pos, x_pos], [0, num_stories * story_height], 'b-', lw=3)  # Columns
-        ax_grid.plot(x_pos, 0, '^r', ms=10)  # Supports
-    
-    ax_grid.set_ylabel("Height (m)")
-    ax_grid.set_xlabel("Span X (m)")
-    ax_grid.set_title("3-Storey 2D Structural Frame")
-    ax_grid.grid(True, linestyle="--", alpha=0.5)
-    st.pyplot(fig_grid)
-
-st.markdown("---")
-
-# ==========================================
-# 3. 2D FRAME STRUCTURAL ANALYSIS ENGINE
-# ==========================================
-st.subheader("⚡ Structural Analysis (1st Floor Critical Beam)")
-
-# Simplified Frame Moment Coefficient Approximation (ACI 318 Chapter 6 / Elastic Approx)
-# Critical Mid-span Moment Mu(+) and Negative End Moment Mu(-)
-L = span_x
-M_u_pos = (w_u_design * L**2) / 11.0   # Mid-span positive moment (kNm)
-M_u_neg = (w_u_design * L**2) / 9.0    # Support negative moment (kNm)
-V_u = (w_u_design * L) / 2.0           # Ultimate Shear Force (kN)
-
-c1, c2, c3 = st.columns(3)
-c1.metric("Max Positive Moment (Mu+)", f"{M_u_pos:.2f} kNm")
-c2.metric("Max Negative Moment (Mu-)", f"{M_u_neg:.2f} kNm")
-c3.metric("Max Shear Force (Vu)", f"{V_u:.2f} kN")
-
-# ==========================================
-# 4. ACI 318-19 FLEXURAL & SHEAR DESIGN
-# ==========================================
-st.subheader("📐 ACI 318-19 Member Auto-Design (Beam Section)")
-
-d_eff = h_beam - cc_beam - 10 - 20/2  # Effective depth assuming 10mm stirrup & 20mm rebar
-phi_flexure = 0.90
-phi_shear = 0.75
-
-def design_flexure(M_u, b, d, fc, fy):
-    """ACI 318 Flexural Reinforcement Calculation"""
-    M_u_Nmm = M_u * 1e6
-    Rn = M_u_Nmm / (phi_flexure * b * d**2)
-    
-    # Check Section Capacity Limit
-    rho_max = 0.85 * (0.85 * fc / fy) * (3/8)  # Tension-controlled limit (epsilon_t >= 0.005)
-    
-    term = 1 - (2 * Rn) / (0.85 * fc)
-    if term < 0:
-        return None, "Section dimensions too small! Doubly reinforced section required."
-    
-    rho = (0.85 * fc / fy) * (1 - np.sqrt(term))
-    
-    # Minimum Reinforcement Check (ACI 318-19 Section 9.6.1.2)
-    rho_min = max(0.25 * np.sqrt(fc) / fy, 1.4 / fy)
-    rho_provided = max(rho, rho_min)
-    
-    As_required = rho_provided * b * d
-    return As_required, rho_provided
-
-# Flexure Design
-As_pos, rho_pos = design_flexure(M_u_pos, b_beam, d_eff, fc, fy)
-As_neg, rho_neg = design_flexure(M_u_neg, b_beam, d_eff, fc, fy)
-
-# Shear Design (ACI 318-19 Section 22.5)
-Vc = 0.17 * np.sqrt(fc) * b_beam * d_eff / 1000.0  # Concrete Shear Strength (kN)
-phi_Vc = phi_shear * Vc
-
-st.markdown("#### Design Results Summary")
-
-col_des1, col_des2 = st.columns(2)
-
-with col_des1:
-    st.write("**Flexural Reinforcement (As):**")
-    if As_pos:
-        st.write(f"- **Mid-Span (+Mu):** As = **{As_pos:.1f} mm²** (ρ = {rho_pos*100:.2f}%)")
-        rebar_pos = int(np.ceil(As_pos / (np.pi * 20**2 / 4)))
-        st.info(f"👉 Provide: **{max(2, rebar_pos)} - D20 Bars** at Bottom")
-        
-    if As_neg:
-        st.write(f"- **Support (-Mu):** As = **{As_neg:.1f} mm²** (ρ = {rho_neg*100:.2f}%)")
-        rebar_neg = int(np.ceil(As_neg / (np.pi * 20**2 / 4)))
-        st.info(f"👉 Provide: **{max(2, rebar_neg)} - D20 Bars** at Top")
-
-with col_des2:
-    st.write("**Shear Reinforcement (Stirrups):**")
-    st.write(f"- **Concrete Shear Strength (φVc):** {phi_Vc:.2f} kN")
-    st.write(f"- **Applied Ultimate Shear (Vu):** {V_u:.2f} kN")
-    
-    if V_u <= 0.5 * phi_Vc:
-        st.success("✅ Minimum stirrups required by code.")
-    elif V_u <= phi_Vc:
-        st.warning("⚠️ Vu > 0.5φVc: Provide minimum stirrups (e.g., RB10 @ 200mm c/c).")
-    else:
-        Vs_req = (V_u - phi_Vc) / phi_shear  # kN
-        Av = 2 * (np.pi * 10**2 / 4)         # 2-legged 10mm stirrup area (mm²)
-        s_req = (Av * fy * d_eff) / (Vs_req * 1000.0)
-        s_final = min(s_req, d_eff/2, 300.0)
-        st.error(f"❌ Shear Reinforcement Required: **RB10 @ {int(s_final)} mm c/c**")
+    st.write(f"- **Required Steel Area (As):** **{As_req:.1f} mm²**")
+    rebar_count = int(np.ceil(As_req / 314.0))  # Using D20 bars
+    st.success(f"👉 Provide: **{max(2, rebar_count)} - D20 Bars**")
