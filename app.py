@@ -497,7 +497,9 @@ if run_analysis or 'analysis_results' in st.session_state:
         color = 'background-color: #d4edda; color: #155724;' if 'OK' in val and 'Not' not in val else 'background-color: #f8d7da; color: #721c24;'
         return color
 
-    st.dataframe(res_df.style.applymap(highlight_status, subset=['Status']), use_container_width=True)
+    # map သို့မဟုတ် applymap ကို version အလိုက် ရွေးချယ်သုံးခြင်း
+    style_func = getattr(res_df.style, 'map', getattr(res_df.style, 'applymap', None))
+    st.dataframe(style_func(highlight_status, subset=['Status']), use_container_width=True)
 
 # ==========================================
 # 8. CROSS SECTION VISUALIZATION (REQUIREMENT 2)
