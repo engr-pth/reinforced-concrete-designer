@@ -44,14 +44,8 @@ REBAR_DB_IMP = {
     "#10": {"dia": 1.270, "area": 1.27}
 }
 
-# Helper functions for property calculation
-def calc_rect_properties(b, h):
-    A = b * h
-    Ixx = (b * h**3) / 12.0
-    return A, Ixx
-
 # ==========================================
-# 0. GLOBAL UNITS & SESSION STATE
+# 0. GLOBAL UNITS & SESSION STATE SAFEGUARD
 # ==========================================
 st.sidebar.header("0. Global Unit Selection")
 unit_choice = st.sidebar.selectbox("Select Primary Calculation Unit System", list(UNIT_SYSTEMS.keys()), index=0)
@@ -62,17 +56,18 @@ rebar_db = REBAR_DB_IMP if is_imperial else REBAR_DB_SI
 default_rebar_key = "#8" if is_imperial else "D20"
 default_stirrup_key = "#3" if is_imperial else "D10"
 
-if 'col_sections' not in st.session_state:
+# Fix KeyError: Reset or Update Session State when Unit System Changes
+if 'current_unit' not in st.session_state or st.session_state['current_unit'] != unit_choice:
+    st.session_state['current_unit'] = unit_choice
+    
     st.session_state['col_sections'] = {
         "C1": {"b": 16.0 if is_imperial else 400.0, "h": 16.0 if is_imperial else 400.0, "cover": 1.5 if is_imperial else 40.0, "n_bars": 8, "bar_size": default_rebar_key},
         "C2": {"b": 20.0 if is_imperial else 500.0, "h": 20.0 if is_imperial else 500.0, "cover": 1.5 if is_imperial else 40.0, "n_bars": 12, "bar_size": default_rebar_key}
     }
-if 'beam_sections' not in st.session_state:
     st.session_state['beam_sections'] = {
         "B1": {"b": 10.0 if is_imperial else 250.0, "h": 18.0 if is_imperial else 450.0, "cover": 1.5 if is_imperial else 30.0, "n_top": 3, "n_bot": 3, "bar_size": default_rebar_key},
         "B2": {"b": 12.0 if is_imperial else 300.0, "h": 24.0 if is_imperial else 600.0, "cover": 1.5 if is_imperial else 30.0, "n_top": 4, "n_bot": 4, "bar_size": default_rebar_key}
     }
-if 'slab_sections' not in st.session_state:
     st.session_state['slab_sections'] = {
         "S1": {"t": 6.0 if is_imperial else 150.0, "cover": 0.75 if is_imperial else 20.0, "bar_size": default_stirrup_key, "spacing": 6.0 if is_imperial else 150.0},
         "S2": {"t": 8.0 if is_imperial else 200.0, "cover": 0.75 if is_imperial else 20.0, "bar_size": default_stirrup_key, "spacing": 6.0 if is_imperial else 150.0}
@@ -115,14 +110,20 @@ st.subheader("📋 Member Section & Rebar Properties (Interactive Setup)")
 
 tab1, tab2, tab3 = st.tabs(["Columns", "Beams", "Slabs"])
 
+unit_tag = "imp" if is_imperial else "si"
+
 with tab1:
     cols_render = []
     for name, p in list(st.session_state['col_sections'].items()):
         c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
-        p['b'] = c1.number_input(f"{name} Width b ({units['dim']})", value=float(p['b']), key=f"cb_{name}")
-        p['h'] = c2.number_input(f"{name} Depth h ({units['dim']})", value=float(p['h']), key=f"ch_{name}")
-        p['n_bars'] = c3.number_input(f"{name} Total Rebars", value=int(p['n_bars']), min_value=4, step=2, key=f"cn_{name}")
-        p['bar_size'] = c4.selectbox(f"{name} Bar Size", list(rebar_db.keys()), index=list(rebar_db.keys()).index(p['bar_size']) if p['bar_size'] in rebar_db else 0, key=f"cs_{name}")
+        p['b'] = c1.number_input(f"{name} Width b ({units['dim']})", value=float(p['b']), key=f"cb_{name}_{unit_tag}")
+        p['h'] = c2.number_input(f"{name} Depth h ({units['dim']})", value=float(p['h']), key=f"ch_{name}_{unit_tag}")
+        p['n_bars'] = c3.number_input(f"{name} Total Rebars", value=int(p['n_bars']), min_value=4, step=2, key=f"cn_{name}_{unit_tag}")
+        
+        # Safely handle bar size index
+        bar_keys = list(rebar_db.keys())
+        idx = bar_keys.index(p['bar_size']) if p['bar_size'] in bar_keys else 0
+        p['bar_size'] = c4.selectbox(f"{name} Bar Size", bar_keys, index=idx, key=f"cs_{name}_{unit_tag}")
         
         As_prov = p['n_bars'] * rebar_db[p['bar_size']]['area']
         cols_render.append({
@@ -135,11 +136,14 @@ with tab2:
     beams_render = []
     for name, p in list(st.session_state['beam_sections'].items()):
         c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 2])
-        p['b'] = c1.number_input(f"{name} Width b ({units['dim']})", value=float(p['b']), key=f"bb_{name}")
-        p['h'] = c2.number_input(f"{name} Depth h ({units['dim']})", value=float(p['h']), key=f"bh_{name}")
-        p['n_top'] = c3.number_input(f"{name} Top Bars", value=int(p['n_top']), min_value=2, key=f"bnt_{name}")
-        p['n_bot'] = c4.number_input(f"{name} Bottom Bars", value=int(p['n_bot']), min_value=2, key=f"bnb_{name}")
-        p['bar_size'] = c5.selectbox(f"{name} Bar Size", list(rebar_db.keys()), index=list(rebar_db.keys()).index(p['bar_size']) if p['bar_size'] in rebar_db else 0, key=f"bs_{name}")
+        p['b'] = c1.number_input(f"{name} Width b ({units['dim']})", value=float(p['b']), key=f"bb_{name}_{unit_tag}")
+        p['h'] = c2.number_input(f"{name} Depth h ({units['dim']})", value=float(p['h']), key=f"bh_{name}_{unit_tag}")
+        p['n_top'] = c3.number_input(f"{name} Top Bars", value=int(p['n_top']), min_value=2, key=f"bnt_{name}_{unit_tag}")
+        p['n_bot'] = c4.number_input(f"{name} Bottom Bars", value=int(p['n_bot']), min_value=2, key=f"bnb_{name}_{unit_tag}")
+        
+        bar_keys = list(rebar_db.keys())
+        idx = bar_keys.index(p['bar_size']) if p['bar_size'] in bar_keys else 0
+        p['bar_size'] = c5.selectbox(f"{name} Bar Size", bar_keys, index=idx, key=f"bs_{name}_{unit_tag}")
 
         As_top = p['n_top'] * rebar_db[p['bar_size']]['area']
         As_bot = p['n_bot'] * rebar_db[p['bar_size']]['area']
@@ -154,12 +158,15 @@ with tab3:
     slabs_render = []
     for name, p in list(st.session_state['slab_sections'].items()):
         c1, c2, c3 = st.columns([2, 2, 2])
-        p['t'] = c1.number_input(f"{name} Thickness t ({units['dim']})", value=float(p['t']), key=f"st_{name}")
-        p['spacing'] = c2.number_input(f"{name} Bar Spacing ({units['dim']})", value=float(p['spacing']), key=f"ss_{name}")
-        p['bar_size'] = c3.selectbox(f"{name} Mesh Bar Size", list(rebar_db.keys()), index=list(rebar_db.keys()).index(p['bar_size']) if p['bar_size'] in rebar_db else 0, key=f"sbs_{name}")
+        p['t'] = c1.number_input(f"{name} Thickness t ({units['dim']})", value=float(p['t']), key=f"st_{name}_{unit_tag}")
+        p['spacing'] = c2.number_input(f"{name} Bar Spacing ({units['dim']})", value=float(p['spacing']), key=f"ss_{name}_{unit_tag}")
+        
+        bar_keys = list(rebar_db.keys())
+        idx = bar_keys.index(p['bar_size']) if p['bar_size'] in bar_keys else 0
+        p['bar_size'] = c3.selectbox(f"{name} Mesh Bar Size", bar_keys, index=idx, key=f"sbs_{name}_{unit_tag}")
 
         unit_strip = 12.0 if is_imperial else 1000.0
-        n_bars_per_strip = unit_strip / p['spacing']
+        n_bars_per_strip = unit_strip / p['spacing'] if p['spacing'] > 0 else 0
         As_per_strip = n_bars_per_strip * rebar_db[p['bar_size']]['area']
         slabs_render.append({
             "Section": name, f"t ({units['dim']})": p['t'],
@@ -180,7 +187,7 @@ assigned_beam = st.session_state['beam_sections'][assigned_beam_name]
 assigned_slab = st.session_state['slab_sections'][assigned_slab_name]
 
 # ==========================================
-# CROSS-SECTIONAL VISUALIZATION (CORRECTED)
+# CROSS-SECTIONAL VISUALIZATION
 # ==========================================
 st.markdown("---")
 st.subheader("🖼️ Critical Member Cross-Sections (With Top & Bottom Rebars)")
@@ -203,18 +210,14 @@ def plot_section_matplotlib(sec_type, p, fc_val, fy_val, is_imp):
         ax.add_patch(stirrup)
 
     rebar_color = 'darkblue'
-    db_info = rebar_db[p['bar_size']]
-    r_draw = (db_info['dia'] / 2.0) if not is_imp else (db_info['dia'] * 10) # Visual scaling for Imperial
 
     if sec_type == 'Column':
         n = p['n_bars']
-        # Corner bars + Intermediate bars
         xs = [cover, b - cover]
         ys = [cover, h - cover]
         for x in xs:
             for y in ys:
                 ax.add_patch(patches.Circle((x, y), radius=b*0.04, facecolor=rebar_color))
-        # Extra side bars if > 4
         if n > 4:
             rem = n - 4
             for i in range(1, rem // 2 + 1):
@@ -223,25 +226,20 @@ def plot_section_matplotlib(sec_type, p, fc_val, fy_val, is_imp):
                 ax.add_patch(patches.Circle((b - cover, y_mid), radius=b*0.04, facecolor=rebar_color))
 
     elif sec_type == 'Beam':
-        # Top Bars
         for i in range(p['n_top']):
             x = cover + i * (b - 2*cover) / max(1, (p['n_top'] - 1))
             ax.add_patch(patches.Circle((x, h - cover), radius=b*0.04, facecolor=rebar_color))
-        # Bottom Bars
         for i in range(p['n_bot']):
             x = cover + i * (b - 2*cover) / max(1, (p['n_bot'] - 1))
             ax.add_patch(patches.Circle((x, cover), radius=b*0.04, facecolor=rebar_color))
 
     elif sec_type == 'Slab':
-        # Top and Bottom Mesh
         spacing = float(p['spacing'])
-        num_bars = int(b / spacing) + 1
+        num_bars = int(b / spacing) + 1 if spacing > 0 else 1
         for i in range(num_bars):
             x = cover + i * spacing
             if x <= b - cover:
-                # Top Mesh
                 ax.add_patch(patches.Circle((x, h - cover), radius=h*0.05, facecolor='darkred'))
-                # Bottom Mesh
                 ax.add_patch(patches.Circle((x, cover), radius=h*0.05, facecolor=rebar_color))
 
     ax.set_xlim(-b*0.15, b*1.15)
@@ -267,12 +265,10 @@ st.subheader("🌐 3D Structural Visualizer & Load Analysis Engine")
 
 col_3d_ctrl1, col_3d_ctrl2, col_3d_ctrl3 = st.columns([2, 2, 3])
 
-# Question 2 Solution: Display Unit Selector (Independent of Calculation Units)
 display_unit = col_3d_ctrl1.selectbox("3D Graphics Display Unit", ["m", "ft", "mm", "in"], index=0)
 view_mode = col_3d_ctrl2.radio("Shape Mode", ["Undeformed", "Deformed Shape"], index=0)
 def_scale = col_3d_ctrl3.slider("Deformation Scale Factor", 100, 5000, 1000)
 
-# Conversion factors to Display Unit
 len_to_m = 0.3048 if is_imperial else 1.0
 disp_scale_dict = {"m": 1.0, "ft": 3.28084, "mm": 1000.0, "in": 39.3701}
 sf_disp = len_to_m * disp_scale_dict[display_unit]
@@ -285,15 +281,12 @@ z_coords = [k * story_height for k in range(num_stories + 1)]
 
 element_results = []
 
-# Calculation Capacity Engine
 def col_capacity(b, h, n_bars, bar_key, fc_val, fy_val, is_imp):
     Ag = b * h
     Ast = n_bars * rebar_db[bar_key]['area']
     if is_imp:
-        # Pn in kips
         Pn = 0.80 * 0.65 * (0.85 * fc_val * (Ag - Ast) + fy_val * Ast)
     else:
-        # Pn in kN
         Pn = (0.80 * 0.65 * (0.85 * fc_val * (Ag - Ast) + fy_val * Ast)) / 1000.0
     return Pn
 
@@ -302,7 +295,6 @@ phi_Pn_col = col_capacity(assigned_col['b'], assigned_col['h'], assigned_col['n_
 # Draw Columns & Accumulate Hover Info
 for ix, x in enumerate(x_coords):
     for iy, y in enumerate(y_coords):
-        # Tributary Area Factor
         trib_mult = 1.0 if (ix in [0, bays_x] and iy in [0, bays_y]) else (2.0 if (ix in [0, bays_x] or iy in [0, bays_y]) else 4.0)
         trib_factor = trib_mult / 4.0
         
@@ -323,7 +315,6 @@ for ix, x in enumerate(x_coords):
                 f"D/C Ratio: {dc_ratio:.2f} ({status})"
             )
 
-            # Graphics Coordinates
             gx = [x * sf_disp, x * sf_disp]
             gy = [y * sf_disp, y * sf_disp]
             gz = [z1 * sf_disp, z2 * sf_disp]
@@ -373,6 +364,5 @@ fig.update_layout(
 
 st.plotly_chart(fig, use_container_width=True)
 
-# Question 4 Solution: Detailed Member Force & Result Summary Table
 st.markdown("### 📊 Detailed Member Element Load Results")
 st.dataframe(element_results, use_container_width=True)
