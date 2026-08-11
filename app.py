@@ -89,7 +89,7 @@ fy = st.sidebar.number_input(f"Main Steel Rebar Strength fy ({units['stress']})"
 fys = st.sidebar.number_input(f"Stirrup/Tie Rebar Strength fys ({units['stress']})", value=280.0 if units['stress']=='MPa' else (40.0 if units['stress']=='ksi' else 40000.0))
 
 # ==========================================
-# 3. EDITABLE SECTION PROPERTIES (REQUIREMENT 3)
+# 3. EDITABLE SECTION PROPERTIES
 # ==========================================
 st.subheader("📋 Pre-Defined Member Section Properties (Editable Table)")
 
@@ -286,7 +286,7 @@ with c_a3:
         slab_assign[k] = st.selectbox(f"Slab Level {storey_names[k]}", slab_options, index=0, key=f"slab_assign_{k}")
 
 # ==========================================
-# 7. RUN ANALYSIS & FULL RC DESIGN (REQUIREMENT 1 & 5)
+# 7. RUN ANALYSIS & FULL RC DESIGN
 # ==========================================
 st.markdown("---")
 st.subheader("📊 Structural Analysis Engine & RC Capacity Design")
@@ -497,12 +497,11 @@ if run_analysis or 'analysis_results' in st.session_state:
         color = 'background-color: #d4edda; color: #155724;' if 'OK' in val and 'Not' not in val else 'background-color: #f8d7da; color: #721c24;'
         return color
 
-    # map သို့မဟုတ် applymap ကို version အလိုက် ရွေးချယ်သုံးခြင်း
     style_func = getattr(res_df.style, 'map', getattr(res_df.style, 'applymap', None))
     st.dataframe(style_func(highlight_status, subset=['Status']), use_container_width=True)
 
 # ==========================================
-# 8. CROSS SECTION VISUALIZATION (REQUIREMENT 2)
+# 8. CROSS SECTION VISUALIZATION
 # ==========================================
 st.markdown("---")
 st.subheader("📐 Member Cross-Section Drawings & Rebar Layout")
@@ -516,12 +515,39 @@ with sec_tab1:
     n_bar, s_bar = col_p['n_bar'], col_p['s_bar']
 
     fig_c = go.Figure()
+    # Concrete Outer Boundary
     fig_c.add_shape(type="rect", x0=-b/2, y0=-h/2, x1=b/2, y1=h/2, line=dict(color="gray", width=3), fillcolor="rgba(200,200,200,0.3)")
-    fig_c.add_shape(type="rect", x0=-b/2+cov, y0=-h/2+cov, x1=b/2-cov, y1=h/2-cov, line=dict(color="red", width=2, dash="dash"))
-
-    rebar_x, rebar_y = [], []
+    
+    # Tie / Stirrup Line with 135-degree Hook
     cx0, cx1 = -b/2 + cov, b/2 - cov
     cy0, cy1 = -h/2 + cov, h/2 - cov
+    
+    # Tie closed loop
+    fig_c.add_trace(go.Scatter(
+        x=[cx0, cx1, cx1, cx0, cx0],
+        y=[cy0, cy0, cy1, cy1, cy0],
+        mode='lines',
+        line=dict(color="red", width=2, dash="dash"),
+        name="Tie / Stirrup"
+    ))
+
+    # 135 Degree Hook Detail at Top-Left Corner
+    hook_len = min(b, h) * 0.08
+    hook_x1 = cx0 + hook_len * math.cos(math.radians(-45))
+    hook_y1 = cy1 - hook_len * math.sin(math.radians(-45))
+    hook_x2 = cx0 + hook_len * math.cos(math.radians(-45)) - 4
+    hook_y2 = cy1 - hook_len * math.sin(math.radians(-45)) - 8
+
+    fig_c.add_trace(go.Scatter(
+        x=[cx0, hook_x1, hook_x2],
+        y=[cy1, hook_y1, hook_y2],
+        mode='lines',
+        line=dict(color="red", width=2),
+        name="135° Seismic Hook"
+    ))
+
+    # Main Rebars
+    rebar_x, rebar_y = [], []
     corners = [(cx0, cy0), (cx0, cy1), (cx1, cy0), (cx1, cy1)]
     for x_p, y_p in corners:
         rebar_x.append(x_p)
@@ -538,13 +564,18 @@ with sec_tab1:
             rebar_x.extend([cx0, cx1])
             rebar_y.extend([ry, ry])
 
-    fig_c.add_trace(go.Scatter(x=rebar_x, y=rebar_y, mode='markers', marker=dict(color='black', size=14), name=f'Rebar: {n_bar} - {s_bar} {bar_fmt}'))
+    fig_c.add_trace(go.Scatter(
+        x=rebar_x, y=rebar_y, mode='markers',
+        marker=dict(color='black', size=14),
+        name=f'Main Rebar ({n_bar} - {s_bar} {bar_fmt})'
+    ))
 
     fig_c.update_layout(
         title=f"Column Section: {sel_col_sec} ({b:.1f} x {h:.1f} {d_unit})",
         xaxis=dict(title=f"Width b ({d_unit})", range=[-b*0.8, b*0.8], zeroline=False),
         yaxis=dict(title=f"Height h ({d_unit})", range=[-h*0.8, h*0.8], scaleanchor="x", scaleratio=1),
-        width=500, height=450
+        width=550, height=450,
+        showlegend=True
     )
     st.plotly_chart(fig_c, use_container_width=True)
 
@@ -557,21 +588,41 @@ with sec_tab2:
 
     fig_b = go.Figure()
     fig_b.add_shape(type="rect", x0=-b/2, y0=0, x1=b/2, y1=h, line=dict(color="gray", width=3), fillcolor="rgba(200,200,200,0.3)")
-    fig_b.add_shape(type="rect", x0=-b/2+cov, y0=cov, x1=b/2-cov, y1=h-cov, line=dict(color="green", width=2, dash="dash"))
+    
+    # Beam Stirrup with 135 Hook
+    bx0, bx1 = -b/2 + cov, b/2 - cov
+    by0, by1 = cov, h - cov
+    fig_b.add_trace(go.Scatter(
+        x=[bx0, bx1, bx1, bx0, bx0],
+        y=[by0, by0, by1, by1, by0],
+        mode='lines',
+        line=dict(color="green", width=2, dash="dash"),
+        name="Stirrup"
+    ))
+    
+    hook_len = min(b, h) * 0.08
+    fig_b.add_trace(go.Scatter(
+        x=[bx0, bx0 + hook_len*0.7],
+        y=[by1, by1 - hook_len*0.7],
+        mode='lines',
+        line=dict(color="green", width=2),
+        name="135° Hook"
+    ))
 
     top_x = np.linspace(-b/2 + cov, b/2 - cov, n_top) if n_top > 1 else [0]
     top_y = [h - cov] * len(top_x)
-    fig_b.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='blue', size=14), name=f'Top: {n_top} - {s_top} {bar_fmt}'))
+    fig_b.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='blue', size=14), name=f'Top Rebar: {n_top} - {s_top} {bar_fmt}'))
 
     bot_x = np.linspace(-b/2 + cov, b/2 - cov, n_bot) if n_bot > 1 else [0]
     bot_y = [cov] * len(bot_x)
-    fig_b.add_trace(go.Scatter(x=bot_x, y=bot_y, mode='markers', marker=dict(color='red', size=14), name=f'Bottom: {n_bot} - {s_bot} {bar_fmt}'))
+    fig_b.add_trace(go.Scatter(x=bot_x, y=bot_y, mode='markers', marker=dict(color='red', size=14), name=f'Bottom Rebar: {n_bot} - {s_bot} {bar_fmt}'))
 
     fig_b.update_layout(
         title=f"Beam Section: {sel_beam_sec} (b={b:.1f}, h={h:.1f} {d_unit})",
         xaxis=dict(title=f"Width b ({d_unit})", range=[-b*0.8, b*0.8], zeroline=False),
         yaxis=dict(title=f"Height h ({d_unit})", range=[-h*0.2, h*1.2], scaleanchor="x", scaleratio=1),
-        width=500, height=450
+        width=550, height=450,
+        showlegend=True
     )
     st.plotly_chart(fig_b, use_container_width=True)
 
@@ -584,13 +635,15 @@ with sec_tab3:
     w_strip = 1000.0 if d_unit == 'mm' else 12.0
 
     fig_s = go.Figure()
+    # Slab Concrete Boundary
     fig_s.add_shape(type="rect", x0=0, y0=0, x1=w_strip, y1=t, line=dict(color="gray", width=3), fillcolor="rgba(200,200,200,0.3)")
 
-    top_x = np.linspace(cov, w_strip - cov, n_top) if n_top > 1 else [w_strip/2]
+    # Rebars shifted inside cover (does not touch outer edge)
+    top_x = np.linspace(cov + 10, w_strip - cov - 10, n_top) if n_top > 1 else [w_strip/2]
     top_y = [t - cov] * len(top_x)
     fig_s.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='purple', size=12), name=f'Top Rebar: {n_top} - {s_top} {bar_fmt}/m'))
 
-    bot_x = np.linspace(cov, w_strip - cov, n_bot) if n_bot > 1 else [w_strip/2]
+    bot_x = np.linspace(cov + 10, w_strip - cov - 10, n_bot) if n_bot > 1 else [w_strip/2]
     bot_y = [cov] * len(bot_x)
     fig_s.add_trace(go.Scatter(x=bot_x, y=bot_y, mode='markers', marker=dict(color='orange', size=12), name=f'Bottom Rebar: {n_bot} - {s_bot} {bar_fmt}/m'))
 
@@ -598,22 +651,38 @@ with sec_tab3:
         title=f"Slab Section: {sel_slab_sec} (Thickness t={t:.1f} {d_unit}, Strip={w_strip:.0f} {d_unit})",
         xaxis=dict(title=f"Strip Width ({d_unit})", range=[-w_strip*0.1, w_strip*1.1]),
         yaxis=dict(title=f"Thickness t ({d_unit})", range=[-t*0.5, t*2.0], scaleanchor="x", scaleratio=1),
-        width=600, height=350
+        width=600, height=350,
+        showlegend=True
     )
     st.plotly_chart(fig_s, use_container_width=True)
 
 # ==========================================
-# 9. 3D VISUALIZATION WITH SEPARATE VIEW UNIT & DEFORMED SHAPE (REQUIREMENT 4)
+# 9. 3D VISUALIZATION WITH DISPLAY FILTERS & SCALE FACTOR
 # ==========================================
 st.markdown("---")
 st.subheader("🌐 3D Building Model Visualization & Mode Shape")
 
-c_v1, c_v2 = st.columns([1, 1])
+c_v1, c_v2, c_v3 = st.columns([1, 1, 1])
 with c_v1:
     view_unit = st.selectbox("Select 3D Display Unit (Visual Only)", ["m", "mm", "ft", "in"], index=0)
 
 with c_v2:
-    display_mode = st.radio("Select 3D Display Mode", ["Original Undeformed Model", "Deformed Mode Shape (Exaggerated)"], index=0)
+    display_mode = st.radio("Select 3D Display Mode", ["Original Undeformed Model", "Deformed Mode Shape"], index=0)
+
+with c_v3:
+    if display_mode == "Deformed Mode Shape":
+        deform_scale_factor = st.slider("Deformation Scale Factor (x-times)", min_value=1.0, max_value=100.0, value=20.0, step=1.0)
+    else:
+        deform_scale_factor = 0.0
+
+st.write("**3D Element Display Filters (Choose elements to show):**")
+f_col1, f_col2, f_col3 = st.columns(3)
+with f_col1:
+    show_columns = st.checkbox("Show Columns", value=True)
+with f_col2:
+    show_beams = st.checkbox("Show Beams", value=True)
+with f_col3:
+    show_slabs = st.checkbox("Show Slabs", value=True)
 
 scale_map = {"m": 1.0, "ft": 3.28084, "in": 39.3701, "mm": 1000.0}
 base_to_m = 1.0 if units['len'] == 'm' else (0.3048 if units['len']=='ft' else 0.0254)
@@ -625,67 +694,97 @@ z_coords = [k * story_height * v_scale for k in range(num_stories + 1)]
 
 fig3d = go.Figure()
 
-def_scale = 0.08 * (max(x_coords) if x_coords else 1.0) if display_mode.startswith("Deformed") else 0.0
+base_def_scale = 0.003 * (max(x_coords) if x_coords else 1.0)
+def_scale = base_def_scale * deform_scale_factor if display_mode == "Deformed Mode Shape" else 0.0
 
 # Draw Columns
-for i_idx, x in enumerate(x_coords):
-    for j_idx, y in enumerate(y_coords):
-        for k in range(num_stories):
-            z0, z1 = z_coords[k], z_coords[k+1]
-            
-            dx0 = def_scale * (z0 / max(z_coords))**1.5 * math.sin(i_idx + k)
-            dy0 = def_scale * (z0 / max(z_coords))**1.5 * math.cos(j_idx + k)
-            dx1 = def_scale * (z1 / max(z_coords))**1.5 * math.sin(i_idx + k + 1)
-            dy1 = def_scale * (z1 / max(z_coords))**1.5 * math.cos(j_idx + k + 1)
+if show_columns:
+    for i_idx, x in enumerate(x_coords):
+        for j_idx, y in enumerate(y_coords):
+            for k in range(num_stories):
+                z0, z1 = z_coords[k], z_coords[k+1]
+                
+                dx0 = def_scale * (z0 / max(z_coords))**1.5 * math.sin(i_idx + k)
+                dy0 = def_scale * (z0 / max(z_coords))**1.5 * math.cos(j_idx + k)
+                dx1 = def_scale * (z1 / max(z_coords))**1.5 * math.sin(i_idx + k + 1)
+                dy1 = def_scale * (z1 / max(z_coords))**1.5 * math.cos(j_idx + k + 1)
 
-            col_color = 'royalblue' if display_mode.startswith("Original") else 'crimson'
-            fig3d.add_trace(go.Scatter3d(
-                x=[x + dx0, x + dx1], y=[y + dy0, y + dy1], z=[z0, z1],
-                mode='lines', line=dict(color=col_color, width=6),
-                hoverinfo='text',
-                text=f"Column: {col_assign[k+1]} ({storey_names[k]} to {storey_names[k+1]})",
-                showlegend=False
-            ))
+                col_color = 'royalblue' if display_mode.startswith("Original") else 'crimson'
+                fig3d.add_trace(go.Scatter3d(
+                    x=[x + dx0, x + dx1], y=[y + dy0, y + dy1], z=[z0, z1],
+                    mode='lines', line=dict(color=col_color, width=6),
+                    hoverinfo='text',
+                    text=f"Column: {col_assign[k+1]} ({storey_names[k]} to {storey_names[k+1]})",
+                    showlegend=False
+                ))
 
 # Draw Beams
-for k in range(1, num_stories + 1):
-    z = z_coords[k]
-    z_ratio = z / max(z_coords)
-    
-    for j_idx, y in enumerate(y_coords):
+if show_beams:
+    for k in range(1, num_stories + 1):
+        z = z_coords[k]
+        z_ratio = z / max(z_coords)
+        
+        for j_idx, y in enumerate(y_coords):
+            for i_idx in range(bays_x):
+                x0, x1 = x_coords[i_idx], x_coords[i_idx+1]
+                
+                dx0 = def_scale * z_ratio**1.5 * math.sin(i_idx + k - 1)
+                dy0 = def_scale * z_ratio**1.5 * math.cos(j_idx + k - 1)
+                dx1 = def_scale * z_ratio**1.5 * math.sin(i_idx + k)
+                dy1 = def_scale * z_ratio**1.5 * math.cos(j_idx + k)
+
+                beam_color = 'red' if display_mode.startswith("Original") else 'orange'
+                fig3d.add_trace(go.Scatter3d(
+                    x=[x0 + dx0, x1 + dx1], y=[y + dy0, y + dy1], z=[z, z],
+                    mode='lines', line=dict(color=beam_color, width=4),
+                    hoverinfo='text',
+                    text=f"Beam X: {beam_assign[k]} ({storey_names[k]})",
+                    showlegend=False
+                ))
+
+        for i_idx, x in enumerate(x_coords):
+            for j_idx in range(bays_y):
+                y0, y1 = y_coords[j_idx], y_coords[j_idx+1]
+
+                dx0 = def_scale * z_ratio**1.5 * math.sin(i_idx + k - 1)
+                dy0 = def_scale * z_ratio**1.5 * math.cos(j_idx + k - 1)
+                dx1 = def_scale * z_ratio**1.5 * math.sin(i_idx + k)
+                dy1 = def_scale * z_ratio**1.5 * math.cos(j_idx + k)
+
+                fig3d.add_trace(go.Scatter3d(
+                    x=[x + dx0, x + dx1], y=[y0 + dy0, y1 + dy1], z=[z, z],
+                    mode='lines', line=dict(color='green', width=4),
+                    hoverinfo='text',
+                    text=f"Beam Y: {beam_assign[k]} ({storey_names[k]})",
+                    showlegend=False
+                ))
+
+# Draw Slabs
+if show_slabs:
+    for k in range(1, num_stories + 1):
+        z = z_coords[k]
+        z_ratio = z / max(z_coords)
         for i_idx in range(bays_x):
-            x0, x1 = x_coords[i_idx], x_coords[i_idx+1]
-            
-            dx0 = def_scale * z_ratio**1.5 * math.sin(i_idx + k - 1)
-            dy0 = def_scale * z_ratio**1.5 * math.cos(j_idx + k - 1)
-            dx1 = def_scale * z_ratio**1.5 * math.sin(i_idx + k)
-            dy1 = def_scale * z_ratio**1.5 * math.cos(j_idx + k)
+            for j_idx in range(bays_y):
+                x0, x1 = x_coords[i_idx], x_coords[i_idx+1]
+                y0, y1 = y_coords[j_idx], y_coords[j_idx+1]
 
-            beam_color = 'red' if display_mode.startswith("Original") else 'orange'
-            fig3d.add_trace(go.Scatter3d(
-                x=[x0 + dx0, x1 + dx1], y=[y + dy0, y + dy1], z=[z, z],
-                mode='lines', line=dict(color=beam_color, width=4),
-                hoverinfo='text',
-                text=f"Beam X: {beam_assign[k]} ({storey_names[k]})",
-                showlegend=False
-            ))
+                dx0 = def_scale * z_ratio**1.5 * math.sin(i_idx + k - 1)
+                dy0 = def_scale * z_ratio**1.5 * math.cos(j_idx + k - 1)
+                dx1 = def_scale * z_ratio**1.5 * math.sin(i_idx + k)
+                dy1 = def_scale * z_ratio**1.5 * math.cos(j_idx + k)
 
-    for i_idx, x in enumerate(x_coords):
-        for j_idx in range(bays_y):
-            y0, y1 = y_coords[j_idx], y_coords[j_idx+1]
+                sx = [x0 + dx0, x1 + dx1, x1 + dx1, x0 + dx0]
+                sy = [y0 + dy0, y0 + dy0, y1 + dy1, y1 + dy1]
+                sz = [z, z, z, z]
 
-            dx0 = def_scale * z_ratio**1.5 * math.sin(i_idx + k - 1)
-            dy0 = def_scale * z_ratio**1.5 * math.cos(j_idx + k - 1)
-            dx1 = def_scale * z_ratio**1.5 * math.sin(i_idx + k)
-            dy1 = def_scale * z_ratio**1.5 * math.cos(j_idx + k)
-
-            fig3d.add_trace(go.Scatter3d(
-                x=[x + dx0, x + dx1], y=[y0 + dy0, y1 + dy1], z=[z, z],
-                mode='lines', line=dict(color='green', width=4),
-                hoverinfo='text',
-                text=f"Beam Y: {beam_assign[k]} ({storey_names[k]})",
-                showlegend=False
-            ))
+                fig3d.add_trace(go.Mesh3d(
+                    x=sx, y=sy, z=sz,
+                    color='lightblue', opacity=0.35,
+                    hoverinfo='text',
+                    text=f"Slab: {slab_assign[k]} ({storey_names[k]})",
+                    showlegend=False
+                ))
 
 # Grid Line Labels
 for i, x in enumerate(x_coords):
