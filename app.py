@@ -386,14 +386,14 @@ sec_col1, sec_col2, sec_col3 = st.columns(3)
 # Material strengths display helper for section view titles
 d_stress_unit = units['dim'][:-1]
 
-with sec_col1:
+ith sec_col1:
     # Use standard dim units (mm, in) and MPa/ksi for fc, fy
-    st.pyplot(plot_section_matplotlib('Column', assigned_col, fc, fy, d_unit))
+    st.pyplot(plot_section_matplotlib('Column', assigned_col, fc, fy, units['dim']))
 with sec_col2:
-    st.pyplot(plot_section_matplotlib('Beam', assigned_beam, fc, fy, d_unit))
+    st.pyplot(plot_section_matplotlib('Beam', assigned_beam, fc, fy, units['dim']))
 with sec_col3:
     # slab per 1m strip (or 12 in strip)
-    st.pyplot(plot_section_matplotlib('Slab', {'b': 1000.0 if d_unit=='mm' else 12.0, 'h': assigned_slab['t'], 'cover': assigned_slab['cover']}, fc, fy, d_unit))
+    st.pyplot(plot_section_matplotlib('Slab', {'b': 1000.0 if units['dim']=='mm' else 12.0, 'h': assigned_slab['t'], 'cover': assigned_slab['cover']}, fc, fy, units['dim']))
 
 # ==========================================
 # FEATURE 3: 3D MODEL & DEFORMED SHAPE DISPLAY
