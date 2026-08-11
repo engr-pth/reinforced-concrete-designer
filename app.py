@@ -2,45 +2,167 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="3D Structural Frame Auto-Design App", layout="wide")
+st.set_page_config(page_title="Advanced 3D RC Building Design App", layout="wide")
 
-st.title("🏛️ 3D RC Building Analysis & Visualization (ACI 318)")
-st.caption("Interactive 3D Frame Geometry, 3D Load Takedown & Member Auto-Design Engine")
+st.title("🏛️ Advanced 3D RC Building Analysis & Section Manager (ACI 318)")
+st.caption("Custom Grid Names, Storey Titles, Material Properties & Structural Section Definition Engine")
 
 # ==========================================
-# 1. SIDEBAR: 3D GEOMETRY & LOADS
+# 1. SIDEBAR: BUILDING GEOMETRY & GRID NAMES
 # ==========================================
-st.sidebar.header("1. 3D Building Geometry")
+st.sidebar.header("1. Grid Lines & Storey Definition")
 
 num_stories = st.sidebar.number_input("Number of Stories", value=3, min_value=1, max_value=10)
-story_height = st.sidebar.number_input("Story Height (m)", value=3.5)
+story_height = st.sidebar.number_input("Typical Storey Height (m)", value=3.5)
 
-bays_x = st.sidebar.number_input("Number of Bays (X-Dir)", value=2, min_value=1)
-span_x = st.sidebar.number_input("Bay Span X (m)", value=6.0)
+bays_x = st.sidebar.number_input("Number of Bays (X-Dir)", value=3, min_value=1)
+span_x = st.sidebar.number_input("Bay Span X (m)", value=5.0)
 
 bays_y = st.sidebar.number_input("Number of Bays (Y-Dir)", value=2, min_value=1)
-span_y = st.sidebar.number_input("Bay Span Y (m)", value=5.0)
+span_y = st.sidebar.number_input("Bay Span Y (m)", value=4.0)
 
-st.sidebar.header("2. Material & Sizing")
+# Custom Grid Line Names
+x_grid_labels = [chr(65 + i) for i in range(bays_x + 1)]  # A, B, C, D...
+y_grid_labels = [str(j + 1) for j in range(bays_y + 1)]   # 1, 2, 3, 4...
+
+# Custom Storey Names Input
+st.sidebar.subheader("Storey Names")
+default_storey_names = ["GF", "1F", "2F", "3F", "4F", "5F", "6F", "7F", "8F", "9F", "10F"]
+storey_names = []
+for k in range(num_stories + 1):
+    name = st.sidebar.text_input(f"Level {k} Name", value=default_storey_names[k] if k <= 10 else f"L{k}")
+    storey_names.append(name)
+
+# Building Overall Dimensions
+L_total = bays_x * span_x
+B_total = bays_y * span_y
+H_total = num_stories * story_height
+
+st.sidebar.markdown(f"**Total Length (L):** {L_total:.2f} m")
+st.sidebar.markdown(f"**Total Width (B):** {B_total:.2f} m")
+st.sidebar.markdown(f"**Total Height (H):** {H_total:.2f} m")
+
+# ==========================================
+# 2. SIDEBAR: MATERIALS & REBAR STRENGTHS
+# ==========================================
+st.sidebar.header("2. Material Strengths")
 fc = st.sidebar.number_input("Concrete Strength f'c (MPa)", value=28.0)
-fy = st.sidebar.number_input("Steel Strength fy (MPa)", value=420.0)
-
-# Section sizes
-b_beam = st.sidebar.number_input("Beam Width b (mm)", value=300)
-h_beam = st.sidebar.number_input("Beam Depth h (mm)", value=500)
-b_col = st.sidebar.number_input("Column Size B (mm)", value=400)
-h_col = st.sidebar.number_input("Column Size H (mm)", value=400)
-
-st.sidebar.header("3. Area Loading (kN/m²)")
-dead_area = st.sidebar.number_input("Superimposed Dead Load (kN/m²)", value=1.5) + (0.15 * 24.0)  # Including 150mm slab self-weight
-live_area = st.sidebar.number_input("Live Load (kN/m²)", value=2.0)
+fy = st.sidebar.number_input("Main Steel Rebar Strength fy (MPa)", value=420.0)
+fys = st.sidebar.number_input("Stirrup/Tie Rebar Strength fys (MPa)", value=280.0)
 
 # ==========================================
-# 2. 3D VISUALIZATION ENGINE (Plotly)
+# 3. SECTION DEFINITIONS & AUTO PROPERTIES
 # ==========================================
+st.sidebar.header("3. Section Definitions & Concrete Cover")
+
+# Column Sections
+col_sections = {
+    "C300x300": {"b": 300, "h": 300, "cover": 40},
+    "C400x400": {"b": 400, "h": 400, "cover": 40},
+    "C500x500": {"b": 500, "h": 500, "cover": 40}
+}
+
+# Beam Sections
+beam_sections = {
+    "B230x450": {"b": 230, "h": 450, "cover": 30},
+    "B300x500": {"b": 300, "h": 500, "cover": 30},
+    "B300x600": {"b": 300, "h": 600, "cover": 30}
+}
+
+# Slab Sections
+slab_sections = {
+    "S125": {"t": 125, "cover": 20},
+    "S150": {"t": 150, "cover": 20},
+    "S200": {"t": 200, "cover": 20}
+}
+
+# Display Calculated Properties Function
+def calc_rect_properties(b, h):
+    A = b * h                        # Area (mm2)
+    Ixx = (b * h**3) / 12.0          # Inertia X (mm4)
+    Iyy = (h * b**3) / 12.0          # Inertia Y (mm4)
+    Zxx = (b * h**2) / 6.0           # Section Modulus Zx (mm3)
+    Zyy = (h * b**2) / 6.0           # Section Modulus Zy (mm3)
+    return A, Ixx, Iyy, Zxx, Zyy
+
+def calc_slab_properties(t):
+    # Per 1 meter width
+    b = 1000.0
+    A = b * t
+    I = (b * t**3) / 12.0
+    Z = (b * t**2) / 6.0
+    return A, I, Z
+
+# ==========================================
+# MAIN INTERFACE: SECTION PROPERTY TABLES
+# ==========================================
+st.subheader("📋 Pre-Defined Member Section Properties")
+
+tab1, tab2, tab3 = st.tabs(["Columns", "Beams", "Slabs"])
+
+with tab1:
+    col_data = []
+    for name, p in col_sections.items():
+        A, Ixx, Iyy, Zxx, Zyy = calc_rect_properties(p['b'], p['h'])
+        col_data.append({
+            "Section Name": name, "b (mm)": p['b'], "h (mm)": p['h'], "Cover (mm)": p['cover'],
+            "Area A (mm²)": f"{A:,.0f}", "Ixx (mm⁴)": f"{Ixx:,.2e}", "Zxx (mm³)": f"{Zxx:,.2e}"
+        })
+    st.dataframe(col_data, use_container_width=True)
+
+with tab2:
+    beam_data = []
+    for name, p in beam_sections.items():
+        A, Ixx, Iyy, Zxx, Zyy = calc_rect_properties(p['b'], p['h'])
+        beam_data.append({
+            "Section Name": name, "b (mm)": p['b'], "h (mm)": p['h'], "Cover (mm)": p['cover'],
+            "Area A (mm²)": f"{A:,.0f}", "Ixx (mm⁴)": f"{Ixx:,.2e}", "Zxx (mm³)": f"{Zxx:,.2e}"
+        })
+    st.dataframe(beam_data, use_container_width=True)
+
+with tab3:
+    slab_data = []
+    for name, p in slab_sections.items():
+        A, I, Z = calc_slab_properties(p['t'])
+        slab_data.append({
+            "Slab Name": name, "Thickness t (mm)": p['t'], "Cover (mm)": p['cover'],
+            "Area per m (mm²/m)": f"{A:,.0f}", "Inertia I (mm⁴/m)": f"{I:,.2e}", "Section Modulus Z (mm³/m)": f"{Z:,.2e}"
+        })
+    st.dataframe(slab_data, use_container_width=True)
+
+# ==========================================
+# 4. STOREY-WISE MEMBER ASSIGNMENT
+# ==========================================
+st.markdown("---")
+st.subheader("⚙️ Frame Member Assignment per Storey")
+
+col_assign, beam_assign, slab_assign = {}, {}, {}
+
+c_a1, c_a2, c_a3 = st.columns(3)
+
+with c_a1:
+    st.write("**Assign Columns:**")
+    for k in range(1, num_stories + 1):
+        col_assign[k] = st.selectbox(f"Column ({storey_names[k-1]} to {storey_names[k]})", list(col_sections.keys()), index=1)
+
+with c_a2:
+    st.write("**Assign Beams:**")
+    for k in range(1, num_stories + 1):
+        beam_assign[k] = st.selectbox(f"Beam Level {storey_names[k]}", list(beam_sections.keys()), index=1)
+
+with c_a3:
+    st.write("**Assign Slabs:**")
+    for k in range(1, num_stories + 1):
+        slab_assign[k] = st.selectbox(f"Slab Level {storey_names[k]}", list(slab_sections.keys()), index=1)
+
+# ==========================================
+# 5. 3D VISUALIZATION WITH LABELS & DIMENSIONS
+# ==========================================
+st.markdown("---")
+st.subheader("🌐 3D Building Model with Dimensions, Grid & Storey Labels")
+
 fig = go.Figure()
 
-# Generate 3D Grid Nodes & Draw Members
 x_coords = [i * span_x for i in range(bays_x + 1)]
 y_coords = [j * span_y for j in range(bays_y + 1)]
 z_coords = [k * story_height for k in range(num_stories + 1)]
@@ -52,97 +174,89 @@ for x in x_coords:
             fig.add_trace(go.Scatter3d(
                 x=[x, x], y=[y, y], z=[z_coords[k], z_coords[k+1]],
                 mode='lines', line=dict(color='blue', width=6),
+                hoverinfo='text',
+                text=f"Column: {col_assign[k+1]} ({storey_names[k]} to {storey_names[k+1]})",
                 showlegend=False
             ))
 
-# Draw Beams (X-direction)
-for z in z_coords[1:]:
+# Draw Beams
+for k in range(1, num_stories + 1):
+    z = z_coords[k]
+    # Beams along X
     for y in y_coords:
         for i in range(bays_x):
             fig.add_trace(go.Scatter3d(
                 x=[x_coords[i], x_coords[i+1]], y=[y, y], z=[z, z],
                 mode='lines', line=dict(color='red', width=4),
+                hoverinfo='text',
+                text=f"Beam: {beam_assign[k]} ({storey_names[k]})",
                 showlegend=False
             ))
-
-# Draw Beams (Y-direction)
-for z in z_coords[1:]:
+    # Beams along Y
     for x in x_coords:
         for j in range(bays_y):
             fig.add_trace(go.Scatter3d(
                 x=[x, x], y=[y_coords[j], y_coords[j+1]], z=[z, z],
                 mode='lines', line=dict(color='green', width=4),
+                hoverinfo='text',
+                text=f"Beam: {beam_assign[k]} ({storey_names[k]})",
                 showlegend=False
             ))
 
-# Add Support Points at Base
-base_x, base_y, base_z = np.meshgrid(x_coords, y_coords, [0])
+# 1. Add Grid Line Labels (A, B, C... / 1, 2, 3...) at base
+for i, x in enumerate(x_coords):
+    fig.add_trace(go.Scatter3d(
+        x=[x], y=[-0.8], z=[0],
+        mode='text', text=[f"Grid {x_grid_labels[i]}"],
+        textfont=dict(size=14, color='darkred'), showlegend=False
+    ))
+
+for j, y in enumerate(y_coords):
+    fig.add_trace(go.Scatter3d(
+        x=[-0.8], y=[y], z=[0],
+        mode='text', text=[f"Grid {y_grid_labels[j]}"],
+        textfont=dict(size=14, color='darkblue'), showlegend=False
+    ))
+
+# 2. Add Storey Name Labels along Z-axis
+for k, z in enumerate(z_coords):
+    fig.add_trace(go.Scatter3d(
+        x=[-1.5], y=[-1.5], z=[z],
+        mode='text', text=[f"<b>{storey_names[k]}</b> (Z={z:.1f}m)"],
+        textfont=dict(size=12, color='black'), showlegend=False
+    ))
+
+# 3. Add Overall Building Dimension Indicators (L, B, H)
 fig.add_trace(go.Scatter3d(
-    x=base_x.flatten(), y=base_y.flatten(), z=base_z.flatten(),
-    mode='markers', marker=dict(symbol='square', size=8, color='black'),
-    name='Supports'
+    x=[0, L_total], y=[-2, -2], z=[0, 0],
+    mode='lines+text', line=dict(color='purple', width=4, dash='dash'),
+    text=["", f"Length L = {L_total:.1f}m"], textposition="top center",
+    name="Length L"
+))
+
+fig.add_trace(go.Scatter3d(
+    x=[-2, -2], y=[0, B_total], z=[0, 0],
+    mode='lines+text', line=dict(color='orange', width=4, dash='dash'),
+    text=["", f"Width B = {B_total:.1f}m"], textposition="top center",
+    name="Width B"
+))
+
+fig.add_trace(go.Scatter3d(
+    x=[-2, -2], y=[-2, -2], z=[0, H_total],
+    mode='lines+text', line=dict(color='magenta', width=4, dash='dash'),
+    text=["", f"Height H = {H_total:.1f}m"], textposition="top center",
+    name="Height H"
 ))
 
 fig.update_layout(
     scene=dict(
         xaxis_title='X Axis (m)',
         yaxis_title='Y Axis (m)',
-        zaxis_title='Z Axis (Height - m)',
+        zaxis_title='Z Axis (m)',
         aspectmode='data'
     ),
     margin=dict(l=0, r=0, b=0, t=30),
-    height=550
+    height=650
 )
 
-# Display 3D Layout
-st.subheader("🌐 Interactive 3D Frame View")
 st.plotly_chart(fig, use_container_width=True)
-
-# ==========================================
-# 3. 3D LOAD TAKEDOWN & CRITICAL DESIGN
-# ==========================================
-st.markdown("---")
-st.subheader("📊 Load Takedown & Critical Column/Beam Design")
-
-# Tributary Area Calculation for Interior Column
-trib_area_col = span_x * span_y
-w_u_area = 1.2 * dead_area + 1.6 * live_area  # kN/m²
-
-# Cumulative Load on Ground Floor Interior Column
-Pu_ground_col = w_u_area * trib_area_col * num_stories
-
-# Critical Beam Design Force (Span X)
-w_u_beam = w_u_area * span_y  # Distributed Load on Beam (kN/m)
-Mu_beam = (w_u_beam * span_x**2) / 10.0  # Approx Bending Moment (kNm)
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.info("### 🟢 Ground Floor Interior Column")
-    st.write(f"- **Tributary Area:** {trib_area_col:.2f} m²")
-    st.write(f"- **Ultimate Axial Load (Pu):** **{Pu_ground_col:.2f} kN**")
-    
-    # ACI Column Axial Capacity Check
-    Ag = b_col * h_col  # mm²
-    phi_Pn_max = 0.65 * 0.80 * (0.85 * fc * (Ag - 0.01*Ag) + fy * 0.01*Ag) / 1000.0  # kN (Assuming 1% steel)
-    
-    st.write(f"- **Nominal Capacity (φPn,max):** {phi_Pn_max:.2f} kN")
-    if Pu_ground_col <= phi_Pn_max:
-        st.success("✅ Column Size is ADEQUATE for Axial Compression.")
-    else:
-        st.error("❌ Column Size is TOO SMALL! Increase B x H dimensions.")
-
-with col2:
-    st.info("### 🔴 Critical Beam Section (Ground/1st Floor)")
-    st.write(f"- **Beam Distributed Load (wu):** {w_u_beam:.2f} kN/m")
-    st.write(f"- **Max Design Moment (Mu):** **{Mu_beam:.2f} kNm**")
-    
-    # Simple Flexure Steel Calculation
-    d_eff = h_beam - 55  # mm
-    Rn = (Mu_beam * 1e6) / (0.9 * b_beam * d_eff**2)
-    rho = (0.85 * fc / fy) * (1 - np.sqrt(max(0, 1 - (2 * Rn) / (0.85 * fc))))
-    As_req = max(rho, 1.4/fy) * b_beam * d_eff
-    
-    st.write(f"- **Required Steel Area (As):** **{As_req:.1f} mm²**")
-    rebar_count = int(np.ceil(As_req / 314.0))  # Using D20 bars
-    st.success(f"👉 Provide: **{max(2, rebar_count)} - D20 Bars**")
