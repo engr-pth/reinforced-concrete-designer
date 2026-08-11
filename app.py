@@ -386,7 +386,7 @@ sec_col1, sec_col2, sec_col3 = st.columns(3)
 # Material strengths display helper for section view titles
 d_stress_unit = units['dim'][:-1]
 
-ith sec_col1:
+with sec_col1:
     # Use standard dim units (mm, in) and MPa/ksi for fc, fy
     st.pyplot(plot_section_matplotlib('Column', assigned_col, fc, fy, units['dim']))
 with sec_col2:
