@@ -359,4 +359,3 @@ for i_idx, x in enumerate(x_coords):
 
 fig3d.update_layout(scene=dict(aspectmode='data'), height=600)
 st.plotly_chart(fig3d, use_container_width=True)
-```[cite: 1]
