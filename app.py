@@ -249,9 +249,9 @@ for k in range(1, num_stories + 1):
             slab_load_data.append({
                 "Storey": storey_names[k],
                 "Panel": f"Slab ({x_grid_labels[bx]}-{x_grid_labels[bx+1]}, {y_grid_labels[by]}-{y_grid_labels[by+1]})",
-                f"Dead Load D ({units['area_load'])": 1.2,
-                f"Live Load L ({units['area_load'])": 2.0,
-                f"Custom Factored wu ({units['area_load'])": 10.0
+                f"Dead Load D ({units['area_load']})": 1.2,
+                f"Live Load L ({units['area_load']})": 2.0,
+                f"Custom Factored wu ({units['area_load']})": 10.0
             })
 slab_load_df = pd.DataFrame(slab_load_data)
 edited_slab_load = st.data_editor(slab_load_df, use_container_width=True, key="indiv_slab_load_editor")
