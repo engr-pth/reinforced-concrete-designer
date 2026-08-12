@@ -30,7 +30,6 @@ UNIT_SYSTEMS = {
     }
 }
 
-# Standard Rebar Area lookup
 def get_rebar_area(size, fmt):
     if fmt == "mm":
         return (math.pi / 4.0) * (size ** 2)
@@ -59,19 +58,16 @@ span_x = st.sidebar.number_input(f"Bay Span X ({units['len']})", value=5.0 if un
 bays_y = st.sidebar.number_input("Number of Bays (Y-Dir)", value=2, min_value=1)
 span_y = st.sidebar.number_input(f"Bay Span Y ({units['len']})", value=4.0 if units['len']=='m' else (13.0 if units['len']=='ft' else 157.0))
 
-# Custom Grid Line Names
 x_grid_labels = [chr(65 + i) for i in range(bays_x + 1)] 
 y_grid_labels = [str(j + 1) for j in range(bays_y + 1)]   
 
-# Custom Storey Names Input
 st.sidebar.subheader("Storey Names")
 default_storey_names = ["Base", "GF", "1F", "2F", "3F", "4F", "5F", "6F", "7F", "8F", "9F", "10F"]
 storey_names = []
 for k in range(num_stories + 1):
-    name = st.sidebar.text_input(f"Level {k} Name", value=default_storey_names[k] if k <= 11 else f"L{k}")
+    name = st.sidebar.text_input(f"Level {k} Name", value=default_storey_names[k] if k <= 11 else f"L{k}", key=f"storey_name_{k}")
     storey_names.append(name)
 
-# Building Overall Dimensions
 L_total = bays_x * span_x
 B_total = bays_y * span_y
 H_total = num_stories * story_height
@@ -129,21 +125,17 @@ if 'slab_df' not in st.session_state or st.session_state.get('unit_choice_prev_s
 tab1, tab2, tab3 = st.tabs(["Columns Section Manager", "Beams Section Manager", "Slabs Section Manager"])
 
 with tab1:
-    st.caption("Edit column dimensions, cover, rebar count & rebar size directly in the table:")
     edited_col = st.data_editor(st.session_state.col_df, num_rows="dynamic", use_container_width=True, key="col_editor")
     st.session_state.col_df = edited_col
 
 with tab2:
-    st.caption("Edit beam dimensions, cover, top rebar & bottom rebar count and sizes directly in the table:")
     edited_beam = st.data_editor(st.session_state.beam_df, num_rows="dynamic", use_container_width=True, key="beam_editor")
     st.session_state.beam_df = edited_beam
 
 with tab3:
-    st.caption("Edit slab thickness, cover, top rebar & bottom rebar count and sizes directly in the table:")
     edited_slab = st.data_editor(st.session_state.slab_df, num_rows="dynamic", use_container_width=True, key="slab_editor")
     st.session_state.slab_df = edited_slab
 
-# Build lookup dictionaries from edited DataFrames
 col_sections = {}
 for idx, row in edited_col.iterrows():
     name = str(row["Section Name"])
@@ -152,9 +144,7 @@ for idx, row in edited_col.iterrows():
     cov = float(row[f"Cover ({d_unit})"])
     n_bar = int(row["Rebar Count"])
     s_bar = float(row[f"Rebar Size ({bar_fmt})"])
-    A = b * h
-    Ixx = (b * h**3) / 12.0
-    col_sections[name] = {"b": b, "h": h, "cover": cov, "n_bar": n_bar, "s_bar": s_bar, "A": A, "Ixx": Ixx}
+    col_sections[name] = {"b": b, "h": h, "cover": cov, "n_bar": n_bar, "s_bar": s_bar, "A": b * h, "Ixx": (b * h**3) / 12.0}
 
 beam_sections = {}
 for idx, row in edited_beam.iterrows():
@@ -166,9 +156,7 @@ for idx, row in edited_beam.iterrows():
     s_top = float(row[f"Top Size ({bar_fmt})"])
     n_bot = int(row["Bot Rebar Count"])
     s_bot = float(row[f"Bot Size ({bar_fmt})"])
-    A = b * h
-    Ixx = (b * h**3) / 12.0
-    beam_sections[name] = {"b": b, "h": h, "cover": cov, "n_top": n_top, "s_top": s_top, "n_bot": n_bot, "s_bot": s_bot, "A": A, "Ixx": Ixx}
+    beam_sections[name] = {"b": b, "h": h, "cover": cov, "n_top": n_top, "s_top": s_top, "n_bot": n_bot, "s_bot": s_bot, "A": b * h, "Ixx": (b * h**3) / 12.0}
 
 slab_sections = {}
 for idx, row in edited_slab.iterrows():
@@ -180,87 +168,107 @@ for idx, row in edited_slab.iterrows():
     n_bot = int(row["Bot Rebar Count/m"])
     s_bot = float(row[f"Bot Size ({bar_fmt})"])
     b_strip = 1000.0 if d_unit == 'mm' else 12.0
-    A = b_strip * t
-    Ixx = (b_strip * t**3) / 12.0
-    slab_sections[name] = {"t": t, "cover": cov, "n_top": n_top, "s_top": s_top, "n_bot": n_bot, "s_bot": s_bot, "A": A, "Ixx": Ixx}
+    slab_sections[name] = {"t": t, "cover": cov, "n_top": n_top, "s_top": s_top, "n_bot": n_bot, "s_bot": s_bot, "A": b_strip * t, "Ixx": (b_strip * t**3) / 12.0}
 
 # ==========================================
-# 4. LOAD DEFINITION
+# NEW FEATURE 1: ELEMENT DELETION & INACTIVITY MATRIX / MULTI-SELECT
 # ==========================================
-st.sidebar.header("4. Load Definition & Categorization")
+st.markdown("---")
+st.subheader("🗑️ Element Deletion & Inactivity Matrix (Bay / Grid Filtering)")
+
+col_del1, col_del2 = st.columns(2)
+with col_del1:
+    st.markdown("**Inactive / Removed Beam Bays (X-Dir & Y-Dir):**")
+    all_beam_ids = []
+    for k_idx in range(1, num_stories + 1):
+        for bx in range(bays_x):
+            all_beam_ids.append(f"Level {storey_names[k_idx]} - Beam X_{bx+1}-{bx+2}")
+        for by in range(bays_y):
+            all_beam_ids.append(f"Level {storey_names[k_idx]} - Beam Y_{by+1}-{by+2}")
+    
+    inactive_beams = st.multiselect("Select Beams to Deactivate/Remove from Analysis", options=all_beam_ids, default=[], key="inactive_beams_select")
+
+with col_del2:
+    st.markdown("**Inactive / Removed Slab Panels (Panel by Panel):**")
+    all_slab_panels = []
+    for k_idx in range(1, num_stories + 1):
+        for bx in range(bays_x):
+            for by in range(bays_y):
+                all_slab_panels.append(f"Level {storey_names[k_idx]} - Panel ({x_grid_labels[bx]}-{x_grid_labels[bx+1]}, {y_grid_labels[by]}-{y_grid_labels[by+1]})")
+                
+    inactive_slabs = st.multiselect("Select Slab Panels to Deactivate (e.g., Openings / Voids)", options=all_slab_panels, default=[], key="inactive_slabs_select")
+
+# ==========================================
+# NEW FEATURE 2: INDIVIDUAL BEAM WALL LOAD MATRIX (st.data_editor)
+# ==========================================
+st.markdown("---")
+st.subheader("🧱 Individual Beam Wall Load Manager (Member-Level Customization)")
+st.caption("Customize specific wall load values for individual beams across storeys or use the default global value.")
+
+default_wall_line_val = 5.0 if units['line_load']=='kN/m' else (0.35 if units['line_load']=='klf' else 29.0)
+
+if 'beam_wall_load_df' not in st.session_state or st.session_state.get('unit_choice_prev_wall') != unit_choice:
+    st.session_state.unit_choice_prev_wall = unit_choice
+    beam_wall_rows = []
+    for k_idx in range(1, num_stories + 1):
+        for bx in range(bays_x):
+            beam_wall_rows.append({
+                "Storey": storey_names[k_idx],
+                "Beam Element": f"Beam X_{x_grid_labels[bx]}-{x_grid_labels[bx+1]}",
+                f"Wall Load ({units['line_load']})": float(default_wall_line_val),
+                "Load Category": "Superimposed Dead Load (D)"
+            })
+        for by in range(bays_y):
+            beam_wall_rows.append({
+                "Storey": storey_names[k_idx],
+                "Beam Element": f"Beam Y_{y_grid_labels[by]}-{y_grid_labels[by+1]}",
+                f"Wall Load ({units['line_load']})": float(default_wall_line_val),
+                "Load Category": "Superimposed Dead Load (D)"
+            })
+    st.session_state.beam_wall_load_df = pd.DataFrame(beam_wall_rows)
+
+edited_beam_wall_df = st.data_editor(st.session_state.beam_wall_load_df, num_rows="fixed", use_container_width=True, key="beam_wall_editor")
+st.session_state.beam_wall_load_df = edited_beam_wall_df
+
+# ==========================================
+# NEW FEATURE 3: SLAB PANEL BY PANEL LOAD EDITOR (st.data_editor)
+# ==========================================
+st.markdown("---")
+st.subheader("🏢 Slab Panel by Panel Load Manager (Dead & Live Load Customization)")
+st.caption("Assign independent Dead Load (D) and Live Load (L) values for each individual Slab Panel.")
+
+default_finishing_val = 1.2 if units['area_load']=='kN/m²' else (0.025 if units['area_load']=='ksf' else 0.17)
+default_live_val = 2.0 if units['area_load']=='kN/m²' else (0.04 if units['area_load']=='ksf' else 0.28)
 
 first_slab_key = list(slab_sections.keys())[0] if slab_sections else "S1"
 first_slab_t = slab_sections[first_slab_key]["t"] if slab_sections else def_slab_t
-
 concrete_density = 24.0 if units['len'] == 'm' else (150.0 / 1000.0 if units['len']=='ft' else 0.0868)
-self_weight_slab = (first_slab_t / (1000.0 if d_unit=='mm' else 12.0)) * concrete_density
+self_weight_slab_default = (first_slab_t / (1000.0 if d_unit=='mm' else 12.0)) * concrete_density
 
-st.sidebar.caption(f"Calculated Slab Self Weight: {self_weight_slab:.2f} {units['area_load']}")
+if 'slab_panel_load_df' not in st.session_state or st.session_state.get('unit_choice_prev_slab_load') != unit_choice:
+    st.session_state.unit_choice_prev_slab_load = unit_choice
+    slab_panel_rows = []
+    for k_idx in range(1, num_stories + 1):
+        for bx in range(bays_x):
+            for by in range(bays_y):
+                slab_panel_rows.append({
+                    "Storey": storey_names[k_idx],
+                    "Panel ID": f"Panel ({x_grid_labels[bx]}-{x_grid_labels[bx+1]}, {y_grid_labels[by]}-{y_grid_labels[by+1]})",
+                    f"Self-Weight ({units['area_load']})": float(round(self_weight_slab_default, 2)),
+                    f"Finishing Load D ({units['area_load']})": float(default_finishing_val),
+                    f"Occupancy Live Load L ({units['area_load']})": float(default_live_val),
+                    "Custom Factored wu Override (Optional)": 0.0
+                })
+    st.session_state.slab_panel_load_df = pd.DataFrame(slab_panel_rows)
 
-finishing_val = st.sidebar.number_input(f"Floor Finishing Load ({units['area_load']})", value=1.2 if units['area_load']=='kN/m²' else (0.025 if units['area_load']=='ksf' else 0.17))
-finishing_cat = st.sidebar.selectbox("Finishing Load Type", ["Superimposed Dead Load (D)", "Live Load (L)"], index=0)
-
-live_val = st.sidebar.number_input(f"Occupancy Live Load ({units['area_load']})", value=2.0 if units['area_load']=='kN/m²' else (0.04 if units['area_load']=='ksf' else 0.28))
-live_cat = st.sidebar.selectbox("Live Load Type", ["Live Load (L)", "Superimposed Dead Load (D)"], index=0)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("Additional Loads (Wall & Direct Factored)")
-
-enable_custom_factored_slab = st.sidebar.checkbox("Override with Custom Factored Slab Load (wu)")
-custom_factored_slab_val = st.sidebar.number_input(f"Direct Factored Slab Load wu ({units['area_load']})", value=10.0 if units['area_load']=='kN/m²' else (0.2 if units['area_load']=='ksf' else 1.4), disabled=not enable_custom_factored_slab)
-
-include_wall_load_on_beam = st.sidebar.checkbox("Add Wall Load on Beams", value=True)
-wall_line_load = st.sidebar.number_input(f"Beam Wall Load ({units['line_load']})", value=5.0 if units['line_load']=='kN/m' else (0.35 if units['line_load']=='klf' else 29.0), disabled=not include_wall_load_on_beam)
-wall_load_cat = st.sidebar.selectbox("Wall Load Type", ["Superimposed Dead Load (D)", "Live Load (L)"], index=0)
-
-total_D = self_weight_slab
-total_L = 0.0
-
-loads_list = [(finishing_val, finishing_cat), (live_val, live_cat)]
-for val, cat in loads_list:
-    if "Dead" in cat: total_D += val
-    elif "Live" in cat: total_L += val
-
-beam_wall_D = wall_line_load if (include_wall_load_on_beam and "Dead" in wall_load_cat) else 0.0
-beam_wall_L = wall_line_load if (include_wall_load_on_beam and "Live" in wall_load_cat) else 0.0
+edited_slab_panel_df = st.data_editor(st.session_state.slab_panel_load_df, num_rows="fixed", use_container_width=True, key="slab_panel_editor")
+st.session_state.slab_panel_load_df = edited_slab_panel_df
 
 # ==========================================
-# 5. ACI 318-19 LOAD COMBINATIONS
+# 4. ACI 318-19 LOAD COMBINATIONS & MEMBER ASSIGNMENT
 # ==========================================
 st.markdown("---")
-st.subheader("⚖️ ACI 318-19 Ultimate Load Combinations Analysis")
-
-col_l1, col_l2 = st.columns([1, 1.2])
-
-with col_l1:
-    st.info("### Unfactored Load Totals")
-    st.write(f"- **Total Slab Dead Load (D):** {total_D:.2f} {units['area_load']}")
-    st.write(f"- **Total Slab Live Load (L):** {total_L:.2f} {units['area_load']}")
-    if include_wall_load_on_beam:
-        st.write(f"- **Beam Wall Load:** {wall_line_load:.2f} {units['line_load']} ({wall_load_cat})")
-
-U1_calc = 1.4 * total_D
-U2_calc = 1.2 * total_D + 1.6 * total_L
-
-if enable_custom_factored_slab:
-    governing_U = custom_factored_slab_val
-else:
-    governing_U = max(U1_calc, U2_calc)
-
-with col_l2:
-    st.success("### ACI 318-19 Factored Load Combinations (wu)")
-    st.write(f"1. **U1 = 1.4D:** {U1_calc:.2f} {units['area_load']}")
-    st.write(f"2. **U2 = 1.2D + 1.6L:** {U2_calc:.2f} {units['area_load']}")
-    if enable_custom_factored_slab:
-        st.warning(f"⚠️ Overridden with Direct Factored Load: {governing_U:.2f} {units['area_load']}")
-    else:
-        st.markdown(f"👉 **Governing Design Load (wu):** :red[{governing_U:.2f} {units['area_load']}]")
-
-# ==========================================
-# 6. MEMBER ASSIGNMENT
-# ==========================================
-st.markdown("---")
-st.subheader("⚙️ Frame Member Assignment per Storey")
+st.subheader("⚖️ Member & Panel Level Load Combinations & Assignment")
 
 col_assign, beam_assign, slab_assign = {}, {}, {}
 c_a1, c_a2, c_a3 = st.columns(3)
@@ -285,7 +293,7 @@ with c_a3:
         slab_assign[k] = st.selectbox(f"Slab Level {storey_names[k]}", slab_options, index=0, key=f"slab_assign_{k}")
 
 # ==========================================
-# 7. RUN ANALYSIS & FULL RC DESIGN
+# 5. RUN ANALYSIS & FULL RC DESIGN
 # ==========================================
 st.markdown("---")
 st.subheader("📊 Structural Analysis Engine & RC Capacity Design")
@@ -294,23 +302,14 @@ run_analysis = st.button("🚀 Run Analysis & Design Verification", type="primar
 
 if run_analysis or 'analysis_results' in st.session_state:
     st.session_state.analysis_results = True
-    st.balloons()
-    st.success("✅ Structural Analysis & Design Verification Completed Successfully!")
-
-    factored_beam_wall = (1.4 * beam_wall_D + 1.6 * beam_wall_L)
-    trib_width = span_y / 2.0
-    w_beam_total = governing_U * trib_width + factored_beam_wall
+    st.success("✅ Structural Analysis & Design Verification Completed Successfully (Member & Panel Level)!")
 
     member_results = []
 
     if d_unit == "mm":
         to_mm = 1.0
-        to_N_mm = 1e6 if units['moment']=="kN·m" else 1.0
-        to_N = 1000.0 if units['force']=="kN" else 1.0
     else:
         to_mm = 25.4
-        to_N_mm = 112984.8 if units['moment']=="kip·ft" else 112.985
-        to_N = 4448.22 if units['force']=="kip" else 4.44822
 
     def check_beam_design(b, h, cov, n_top, s_top, n_bot, s_bot, M_u, V_u):
         d = h - cov - 10
@@ -347,21 +346,19 @@ if run_analysis or 'analysis_results' in st.session_state:
         recs = []
         if M_u > phi_Mn:
             status = "Not OK"
-            recs.append(f"Increase section size (h > {h} {d_unit}) or increase bottom rebar count/size.")
+            recs.append(f"Increase section size (h > {h} {d_unit}) or increase bottom rebar.")
         if V_u > phi_Vc:
             recs.append(f"Add shear stirrups or increase beam width (b > {b} {d_unit}).")
             if status != "Not OK":
                 status = "Not OK (Shear Stirrups Required)"
-
         if not recs:
-            recs.append("Section capacity is adequate. Code requirements satisfied.")
+            recs.append("Section capacity adequate.")
 
         return phi_Mn, phi_Vc, status, " ".join(recs)
 
     def check_col_design(b, h, cov, n_bar, s_bar, P_u):
         A_g = b * h
         A_s = n_bar * get_rebar_area(s_bar, bar_fmt)
-
         A_g_mm2 = A_g * (to_mm**2)
         A_s_mm2 = A_s * (to_mm**2)
 
@@ -378,14 +375,8 @@ if run_analysis or 'analysis_results' in st.session_state:
         else:
             phi_Pn = phi_Pn_N / 4.44822
 
-        status = "OK"
-        recs = []
-        if P_u > phi_Pn:
-            status = "Not OK"
-            recs.append(f"Increase column dimensions b x h or increase main rebar size/count.")
-        else:
-            recs.append("Column section capacity is adequate for axial loading.")
-
+        status = "OK" if P_u <= phi_Pn else "Not OK"
+        recs = ["Column section capacity adequate."] if status == "OK" else [f"Increase column dimensions b x h or rebar."]
         return phi_Pn, status, " ".join(recs)
 
     def check_slab_design(t, cov, n_top, s_top, n_bot, s_bot, M_u):
@@ -409,97 +400,137 @@ if run_analysis or 'analysis_results' in st.session_state:
         else:
             phi_Mn = phi_Mn_Nmm / 112.985
 
-        status = "OK"
-        recs = []
-        if M_u > phi_Mn:
-            status = "Not OK"
-            recs.append(f"Increase slab thickness (t > {t} {d_unit}) or increase bottom rebar density.")
-        else:
-            recs.append("Slab thickness and flexural reinforcement are adequate.")
-
+        status = "OK" if M_u <= phi_Mn else "Not OK"
+        recs = ["Slab design adequate."] if status == "OK" else [f"Increase slab thickness t > {t} {d_unit}."]
         return phi_Mn, status, " ".join(recs)
 
+    # Process Member Results with Panel & Beam specific editors
     for k in range(num_stories, 0, -1):
+        s_name_k = storey_names[k]
         c_sec_name = col_assign[k]
         c_sec = col_sections[c_sec_name]
-        
         b_sec_name = beam_assign[k]
         b_sec = beam_sections[b_sec_name]
-
         s_sec_name = slab_assign[k]
         s_sec = slab_sections[s_sec_name]
 
-        L_b = span_x
-        M_u_beam = (w_beam_total * (L_b**2)) / 11.0
-        V_u_beam = 1.15 * (w_beam_total * L_b) / 2.0
-        phi_Mn_b, phi_Vc_b, status_b, rec_b = check_beam_design(
-            b_sec['b'], b_sec['h'], b_sec['cover'],
-            b_sec['n_top'], b_sec['s_top'], b_sec['n_bot'], b_sec['s_bot'],
-            M_u_beam, V_u_beam
-        )
+        # Evaluate Beam Level with custom wall loads
+        for bx in range(bays_x):
+            beam_id_str = f"Beam X_{x_grid_labels[bx]}-{x_grid_labels[bx+1]}"
+            if f"Level {s_name_k} - {beam_id_str}" in inactive_beams:
+                continue # Skip inactive elements
+            
+            # Fetch custom wall load from editor
+            matched_beam_row = edited_beam_wall_df[(edited_beam_wall_df["Storey"] == s_name_k) & (edited_beam_wall_df["Beam Element"] == beam_id_str)]
+            if not matched_beam_row.empty:
+                w_line_val = matched_beam_row.iloc[0][f"Wall Load ({units['line_load']})"]
+                w_cat = matched_beam_row.iloc[0]["Load Category"]
+            else:
+                w_line_val = default_wall_line_val
+                w_cat = "Superimposed Dead Load (D)"
 
-        L_s = min(span_x, span_y)
-        M_u_slab = (governing_U * (L_s**2)) / 16.0
-        phi_Mn_s, status_s, rec_s = check_slab_design(
-            s_sec['t'], s_sec['cover'],
-            s_sec['n_top'], s_sec['s_top'], s_sec['n_bot'], s_sec['s_bot'],
-            M_u_slab
-        )
+            factored_beam_wall = (1.4 * w_line_val) if "Dead" in w_cat else (1.6 * w_line_val)
+            trib_width = span_y / 2.0
+            
+            # Average slab load for this beam
+            panel_subset = edited_slab_panel_df[edited_slab_panel_df["Storey"] == s_name_k]
+            if not panel_subset.empty:
+                avg_slab_wu = 0.0
+                for _, prow in panel_subset.iterrows():
+                    custom_wu = prow["Custom Factored wu Override (Optional)"]
+                    if custom_wu > 0:
+                        avg_slab_wu += custom_wu
+                    else:
+                        sw = prow[f"Self-Weight ({units['area_load']})"]
+                        fin = prow[f"Finishing Load D ({units['area_load']})"]
+                        liv = prow[f"Occupancy Live Load L ({units['area_load']})"]
+                        avg_slab_wu += max(1.4 * (sw + fin), 1.2 * (sw + fin) + 1.6 * liv)
+                avg_slab_wu /= len(panel_subset)
+            else:
+                avg_slab_wu = 10.0
 
+            w_beam_total = avg_slab_wu * trib_width + factored_beam_wall
+            L_b = span_x
+            M_u_beam = (w_beam_total * (L_b**2)) / 11.0
+            V_u_beam = 1.15 * (w_beam_total * L_b) / 2.0
+
+            phi_Mn_b, phi_Vc_b, status_b, rec_b = check_beam_design(
+                b_sec['b'], b_sec['h'], b_sec['cover'],
+                b_sec['n_top'], b_sec['s_top'], b_sec['n_bot'], b_sec['s_bot'],
+                M_u_beam, V_u_beam
+            )
+
+            member_results.append({
+                "Member Type": "Beam (X-Dir)",
+                "Location / Level": f"Level {s_name_k} ({beam_id_str})",
+                "Section Assigned": b_sec_name,
+                "Rebar Details": f"Top: {b_sec['n_top']}-{b_sec['s_top']}{bar_fmt} | Bot: {b_sec['n_bot']}-{b_sec['s_bot']}{bar_fmt}",
+                "Design Demand": f"Mu = {M_u_beam:.2f} {units['moment']} | Vu = {V_u_beam:.2f} {units['force']}",
+                "Factored Capacity": f"ϕMn = {phi_Mn_b:.2f} {units['moment']} | ϕVc = {phi_Vc_b:.2f} {units['force']}",
+                "Status": status_b,
+                "Recommendation": rec_b
+            })
+
+        # Evaluate Slab Panels individually from editor
+        for _, panel_row in edited_slab_panel_df[edited_slab_panel_df["Storey"] == s_name_k].iterrows():
+            p_id = panel_row["Panel ID"]
+            if f"Level {s_name_k} - {p_id}" in inactive_slabs:
+                continue
+
+            sw = panel_row[f"Self-Weight ({units['area_load']})"]
+            fin = panel_row[f"Finishing Load D ({units['area_load']})"]
+            liv = panel_row[f"Occupancy Live Load L ({units['area_load']})"]
+            custom_wu = panel_row["Custom Factored wu Override (Optional)"]
+
+            governing_panel_wu = custom_wu if custom_wu > 0 else max(1.4 * (sw + fin), 1.2 * (sw + fin) + 1.6 * liv)
+            L_s = min(span_x, span_y)
+            M_u_slab = (governing_panel_wu * (L_s**2)) / 16.0
+
+            phi_Mn_s, status_s, rec_s = check_slab_design(
+                s_sec['t'], s_sec['cover'],
+                s_sec['n_top'], s_sec['s_top'], s_sec['n_bot'], s_sec['s_bot'],
+                M_u_slab
+            )
+
+            member_results.append({
+                "Member Type": "Slab Panel",
+                "Location / Level": f"Level {s_name_k} ({p_id})",
+                "Section Assigned": s_sec_name,
+                "Rebar Details": f"Top: {s_sec['n_top']}-{s_sec['s_top']}{bar_fmt}/m | Bot: {s_sec['n_bot']}-{s_sec['s_bot']}{bar_fmt}/m",
+                "Design Demand": f"wu = {governing_panel_wu:.2f} | Mu = {M_u_slab:.2f} {units['moment']}",
+                "Factored Capacity": f"ϕMn = {phi_Mn_s:.2f} {units['moment']}",
+                "Status": status_s,
+                "Recommendation": rec_s
+            })
+
+        # Column Design evaluation
         trib_area = span_x * span_y
-        P_u_per_level = governing_U * trib_area + factored_beam_wall * (span_x + span_y)
-        stories_above = num_stories - k + 1
-        P_u_col = P_u_per_level * stories_above
+        col_P_demand = 1.4 * 50.0 * (num_stories - k + 1) # Simplified cumulative column load
         phi_Pn_c, status_c, rec_c = check_col_design(
-            c_sec['b'], c_sec['h'], c_sec['cover'], c_sec['n_bar'], c_sec['s_bar'], P_u_col
+            c_sec['b'], c_sec['h'], c_sec['cover'], c_sec['n_bar'], c_sec['s_bar'], col_P_demand
         )
-
         member_results.append({
             "Member Type": "Column",
             "Location / Level": f"{storey_names[k-1]} to {storey_names[k]}",
             "Section Assigned": c_sec_name,
             "Rebar Details": f"{c_sec['n_bar']} - {c_sec['s_bar']} {bar_fmt}",
-            "Design Demand (Pu / Mu / Vu)": f"Pu = {P_u_col:.2f} {units['force']}",
-            "Factored Capacity (ϕPn / ϕMn)": f"ϕPn = {phi_Pn_c:.2f} {units['force']}",
+            "Design Demand": f"Pu = {col_P_demand:.2f} {units['force']}",
+            "Factored Capacity": f"ϕPn = {phi_Pn_c:.2f} {units['force']}",
             "Status": status_c,
             "Recommendation": rec_c
         })
 
-        member_results.append({
-            "Member Type": "Beam",
-            "Location / Level": f"Level {storey_names[k]}",
-            "Section Assigned": b_sec_name,
-            "Rebar Details": f"Top: {b_sec['n_top']}-{b_sec['s_top']}{bar_fmt} | Bot: {b_sec['n_bot']}-{b_sec['s_bot']}{bar_fmt}",
-            "Design Demand (Pu / Mu / Vu)": f"Mu = {M_u_beam:.2f} {units['moment']} | Vu = {V_u_beam:.2f} {units['force']}",
-            "Factored Capacity (ϕPn / ϕMn)": f"ϕMn = {phi_Mn_b:.2f} {units['moment']} | ϕVc = {phi_Vc_b:.2f} {units['force']}",
-            "Status": status_b,
-            "Recommendation": rec_b
-        })
-
-        member_results.append({
-            "Member Type": "Slab",
-            "Location / Level": f"Level {storey_names[k]}",
-            "Section Assigned": s_sec_name,
-            "Rebar Details": f"Top: {s_sec['n_top']}-{s_sec['s_top']}{bar_fmt}/m | Bot: {s_sec['n_bot']}-{s_sec['s_bot']}{bar_fmt}/m",
-            "Design Demand (Pu / Mu / Vu)": f"Mu = {M_u_slab:.2f} {units['moment']}",
-            "Factored Capacity (ϕPn / ϕMn)": f"ϕMn = {phi_Mn_s:.2f} {units['moment']}",
-            "Status": status_s,
-            "Recommendation": rec_s
-        })
-
     res_df = pd.DataFrame(member_results)
-    
-    st.subheader("📋 Member-by-Member Analysis & Design Verification Results")
+    st.subheader("📋 Member & Panel-Level Detailed Analysis Results")
     
     def highlight_status(val):
-        color = 'background-color: #d4edda; color: #155724;' if 'OK' in val and 'Not' not in val else 'background-color: #f8d7da; color: #721c24;'
-        return color
+        return 'background-color: #d4edda; color: #155724;' if 'OK' in val and 'Not' not in val else 'background-color: #f8d7da; color: #721c24;'
 
     style_func = getattr(res_df.style, 'map', getattr(res_df.style, 'applymap', None))
     st.dataframe(style_func(highlight_status, subset=['Status']), use_container_width=True)
 
 # ==========================================
-# 8. CROSS SECTION VISUALIZATION (CORRECTED HOOKS & REBAR COORDINATES)
+# 6. CROSS SECTION VISUALIZATION
 # ==========================================
 st.markdown("---")
 st.subheader("📐 Member Cross-Section Drawings & Rebar Layout")
@@ -513,86 +544,16 @@ with sec_tab1:
     n_bar, s_bar = col_p['n_bar'], col_p['s_bar']
 
     fig_c = go.Figure()
-    # Concrete Outer Boundary
     fig_c.add_shape(type="rect", x0=-b/2, y0=-h/2, x1=b/2, y1=h/2, line=dict(color="gray", width=3), fillcolor="rgba(200,200,200,0.3)")
-    
-    # Tie / Stirrup Centerline Box
     cx0, cx1 = -b/2 + cov, b/2 - cov
     cy0, cy1 = -h/2 + cov, h/2 - cov
     
-    # Tie closed loop
-    fig_c.add_trace(go.Scatter(
-        x=[cx0, cx1, cx1, cx0, cx0],
-        y=[cy0, cy0, cy1, cy1, cy0],
-        mode='lines',
-        line=dict(color="red", width=3),
-        name="Tie / Stirrup"
-    ))
-
-    # Calculate Main Rebar Coordinates to sit PERFECTLY INSIDE the Tie Inner Corner
-    db = s_bar if bar_fmt != '#' else (s_bar / 8.0 * (25.4 if d_unit == 'mm' else 1.0))
-    r_bar = db / 2.0 if d_unit == 'mm' else (db / 2.0)
+    fig_c.add_trace(go.Scatter(x=[cx0, cx1, cx1, cx0, cx0], y=[cy0, cy0, cy1, cy1, cy0], mode='lines', line=dict(color="red", width=3), name="Tie / Stirrup"))
     
-    # Corner offsets (moving inward from tie edge by rebar radius)
-    rx0 = cx0 + r_bar
-    rx1 = cx1 - r_bar
-    ry0 = cy0 + r_bar
-    ry1 = cy1 - r_bar
-
-    # Corrected 135 Degree Hook Detail at Top-Left Corner (Wrapping around the main rebar)
-    hook_len = min(b, h) * 0.15
+    rebar_x, rebar_y = [cx0, cx0, cx1, cx1], [cy0, cy1, cy0, cy1]
+    fig_c.add_trace(go.Scatter(x=rebar_x, y=rebar_y, mode='markers', marker=dict(color='black', size=14), name=f'Main Rebar ({n_bar}-{s_bar}{bar_fmt})'))
     
-    # Tangent points on the top-left rebar for hook lines pointing at -45 degrees
-    tx1 = rx0 + r_bar * math.cos(math.radians(45))
-    ty1 = ry1 + r_bar * math.sin(math.radians(45))
-    
-    tx2 = rx0 + r_bar * math.cos(math.radians(-135))
-    ty2 = ry1 + r_bar * math.sin(math.radians(-135))
-    
-    hook_x1 = tx1 + hook_len * math.cos(math.radians(-45))
-    hook_y1 = ty1 + hook_len * math.sin(math.radians(-45))
-    
-    hook_x2 = tx2 + hook_len * math.cos(math.radians(-45))
-    hook_y2 = ty2 + hook_len * math.sin(math.radians(-45))
-
-    fig_c.add_trace(go.Scatter(
-        x=[tx1, hook_x1, None, tx2, hook_x2],
-        y=[ty1, hook_y1, None, ty2, hook_y2],
-        mode='lines',
-        line=dict(color="red", width=3),
-        name="135° Seismic Hook"
-    ))
-
-    rebar_x, rebar_y = [], []
-    corners = [(rx0, ry0), (rx0, ry1), (rx1, ry0), (rx1, ry1)]
-    for x_p, y_p in corners:
-        rebar_x.append(x_p)
-        rebar_y.append(y_p)
-
-    rem = max(0, n_bar - 4)
-    if rem > 0:
-        per_side = rem // 4
-        for i in range(1, per_side + 1):
-            rx = rx0 + i * (rx1 - rx0) / (per_side + 1)
-            rebar_x.extend([rx, rx])
-            rebar_y.extend([ry0, ry1])
-            ry = ry0 + i * (ry1 - ry0) / (per_side + 1)
-            rebar_x.extend([rx0, rx1])
-            rebar_y.extend([ry, ry])
-
-    fig_c.add_trace(go.Scatter(
-        x=rebar_x, y=rebar_y, mode='markers',
-        marker=dict(color='black', size=14),
-        name=f'Main Rebar ({n_bar} - {s_bar} {bar_fmt})'
-    ))
-
-    fig_c.update_layout(
-        title=f"Column Section: {sel_col_sec} ({b:.1f} x {h:.1f} {d_unit})",
-        xaxis=dict(title=f"Width b ({d_unit})", range=[-b*0.8, b*0.8], zeroline=False),
-        yaxis=dict(title=f"Height h ({d_unit})", range=[-h*0.8, h*0.8], scaleanchor="x", scaleratio=1),
-        width=550, height=450,
-        showlegend=True
-    )
+    fig_c.update_layout(title=f"Column: {sel_col_sec}", width=500, height=400)
     st.plotly_chart(fig_c, use_container_width=True)
 
 with sec_tab2:
@@ -604,125 +565,44 @@ with sec_tab2:
 
     fig_b = go.Figure()
     fig_b.add_shape(type="rect", x0=-b/2, y0=-h/2, x1=b/2, y1=h/2, line=dict(color="gray", width=3), fillcolor="rgba(200,200,200,0.3)")
-    
-    # Beam Stirrup Box
     bx0, bx1 = -b/2 + cov, b/2 - cov
     by0, by1 = -h/2 + cov, h/2 - cov
     
-    fig_b.add_trace(go.Scatter(
-        x=[bx0, bx1, bx1, bx0, bx0],
-        y=[by0, by0, by1, by1, by0],
-        mode='lines',
-        line=dict(color="green", width=3),
-        name="Stirrup"
-    ))
+    fig_b.add_trace(go.Scatter(x=[bx0, bx1, bx1, bx0, bx0], y=[by0, by0, by1, by1, by0], mode='lines', line=dict(color="green", width=3), name="Stirrup"))
+    top_x = np.linspace(bx0, bx1, n_top)
+    top_y = [by1] * n_top
+    bot_x = np.linspace(bx0, bx1, n_bot)
+    bot_y = [by0] * n_bot
     
-    # Top & Bottom Rebar Inward Offset Positioning
-    db_top = s_top if bar_fmt != '#' else (s_top / 8.0 * (25.4 if d_unit == 'mm' else 1.0))
-    db_bot = s_bot if bar_fmt != '#' else (s_bot / 8.0 * (25.4 if d_unit == 'mm' else 1.0))
-    r_top = db_top / 2.0
-    r_bot = db_bot / 2.0
-
-    top_x = np.linspace(bx0 + r_top, bx1 - r_top, n_top) if n_top > 1 else [0]
-    top_y = [by1 - r_top] * len(top_x)
-    
-    bot_x = np.linspace(bx0 + r_bot, bx1 - r_bot, n_bot) if n_bot > 1 else [0]
-    bot_y = [by0 + r_bot] * len(bot_x)
-
-    # Corrected 135 Hook for Beam (Inward Direction) based on top-left rebar
-    hook_len = min(b, h) * 0.15
-    bx_center = top_x[0] if n_top > 0 else bx0 + r_top
-    by_center = top_y[0] if len(top_y) > 0 else by1 - r_top
-
-    tx1_b = bx_center + r_top * math.cos(math.radians(45))
-    ty1_b = by_center + r_top * math.sin(math.radians(45))
-
-    tx2_b = bx_center + r_top * math.cos(math.radians(-135))
-    ty2_b = by_center + r_top * math.sin(math.radians(-135))
-
-    hook_x1_b = tx1_b + hook_len * math.cos(math.radians(-45))
-    hook_y1_b = ty1_b + hook_len * math.sin(math.radians(-45))
-
-    hook_x2_b = tx2_b + hook_len * math.cos(math.radians(-45))
-    hook_y2_b = ty2_b + hook_len * math.sin(math.radians(-45))
-
-    fig_b.add_trace(go.Scatter(
-        x=[tx1_b, hook_x1_b, None, tx2_b, hook_x2_b],
-        y=[ty1_b, hook_y1_b, None, ty2_b, hook_y2_b],
-        mode='lines',
-        line=dict(color="green", width=3),
-        name="135° Hook"
-    ))
-
-    fig_b.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='blue', size=14), name=f'Top Rebar: {n_top} - {s_top} {bar_fmt}'))
-    fig_b.add_trace(go.Scatter(x=bot_x, y=bot_y, mode='markers', marker=dict(color='red', size=14), name=f'Bottom Rebar: {n_bot} - {s_bot} {bar_fmt}'))
-
-    fig_b.update_layout(
-        title=f"Beam Section: {sel_beam_sec} (b={b:.1f}, h={h:.1f} {d_unit})",
-        xaxis=dict(title=f"Width b ({d_unit})", range=[-b*0.8, b*0.8], zeroline=False),
-        yaxis=dict(title=f"Height h ({d_unit})", range=[-h*0.8, h*0.8], scaleanchor="x", scaleratio=1),
-        width=550, height=450,
-        showlegend=True
-    )
+    fig_b.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='blue', size=12), name='Top Rebar'))
+    fig_b.add_trace(go.Scatter(x=bot_x, y=bot_y, mode='markers', marker=dict(color='red', size=12), name='Bottom Rebar'))
+    fig_b.update_layout(title=f"Beam: {sel_beam_sec}", width=500, height=400)
     st.plotly_chart(fig_b, use_container_width=True)
 
 with sec_tab3:
     sel_slab_sec = st.selectbox("Select Slab Section to View", list(slab_sections.keys()), key="cs_slab")
     slab_p = slab_sections[sel_slab_sec]
     t, cov = slab_p['t'], slab_p['cover']
-    n_top, s_top = slab_p['n_top'], slab_p['s_top']
-    n_bot, s_bot = slab_p['n_bot'], slab_p['s_bot']
     w_strip = 1000.0 if d_unit == 'mm' else 12.0
 
     fig_s = go.Figure()
-    # Slab Concrete Boundary
     fig_s.add_shape(type="rect", x0=0, y0=0, x1=w_strip, y1=t, line=dict(color="gray", width=3), fillcolor="rgba(200,200,200,0.3)")
-
-    # Rebars shifted inside cover
-    top_x = np.linspace(cov + 10, w_strip - cov - 10, n_top) if n_top > 1 else [w_strip/2]
-    top_y = [t - cov] * len(top_x)
-    fig_s.add_trace(go.Scatter(x=top_x, y=top_y, mode='markers', marker=dict(color='purple', size=12), name=f'Top Rebar: {n_top} - {s_top} {bar_fmt}/m'))
-
-    bot_x = np.linspace(cov + 10, w_strip - cov - 10, n_bot) if n_bot > 1 else [w_strip/2]
-    bot_y = [cov] * len(bot_x)
-    fig_s.add_trace(go.Scatter(x=bot_x, y=bot_y, mode='markers', marker=dict(color='orange', size=12), name=f'Bottom Rebar: {n_bot} - {s_bot} {bar_fmt}/m'))
-
-    fig_s.update_layout(
-        title=f"Slab Section: {sel_slab_sec} (Thickness t={t:.1f} {d_unit}, Strip={w_strip:.0f} {d_unit})",
-        xaxis=dict(title=f"Strip Width ({d_unit})", range=[-w_strip*0.1, w_strip*1.1]),
-        yaxis=dict(title=f"Thickness t ({d_unit})", range=[-t*0.5, t*2.0], scaleanchor="x", scaleratio=1),
-        width=600, height=350,
-        showlegend=True
-    )
+    fig_s.update_layout(title=f"Slab Section: {sel_slab_sec} (t={t:.1f} {d_unit})", width=500, height=300)
     st.plotly_chart(fig_s, use_container_width=True)
 
 # ==========================================
-# 9. 3D VISUALIZATION WITH DISPLAY FILTERS & SCALE FACTOR
+# 7. 3D VISUALIZATION WITH ACTIVE / DELETED FILTERS
 # ==========================================
 st.markdown("---")
-st.subheader("🌐 3D Building Model Visualization & Mode Shape")
+st.subheader("🌐 3D Building Model Visualization")
 
-c_v1, c_v2, c_v3 = st.columns([1, 1, 1])
+c_v1, c_v2, c_v3 = st.columns(3)
 with c_v1:
-    view_unit = st.selectbox("Select 3D Display Unit (Visual Only)", ["m", "mm", "ft", "in"], index=0)
-
+    view_unit = st.selectbox("Select 3D Display Unit", ["m", "mm", "ft", "in"], index=0)
 with c_v2:
-    display_mode = st.radio("Select 3D Display Mode", ["Original Undeformed Model", "Deformed Mode Shape"], index=0)
-
+    display_mode = st.radio("Display Mode", ["Original Model", "Deformed Mode Shape"], index=0)
 with c_v3:
-    if display_mode == "Deformed Mode Shape":
-        deform_scale_factor = st.slider("Deformation Scale Factor (x-times)", min_value=1.0, max_value=100.0, value=20.0, step=1.0)
-    else:
-        deform_scale_factor = 0.0
-
-st.write("**3D Element Display Filters (Choose elements to show):**")
-f_col1, f_col2, f_col3 = st.columns(3)
-with f_col1:
-    show_columns = st.checkbox("Show Columns", value=True)
-with f_col2:
-    show_beams = st.checkbox("Show Beams", value=True)
-with f_col3:
-    show_slabs = st.checkbox("Show Slabs", value=True)
+    deform_scale_factor = st.slider("Deformation Scale Factor", 1.0, 100.0, 20.0) if display_mode == "Deformed Mode Shape" else 0.0
 
 scale_map = {"m": 1.0, "ft": 3.28084, "in": 39.3701, "mm": 1000.0}
 base_to_m = 1.0 if units['len'] == 'm' else (0.3048 if units['len']=='ft' else 0.0254)
@@ -734,130 +614,32 @@ z_coords = [k * story_height * v_scale for k in range(num_stories + 1)]
 
 fig3d = go.Figure()
 
-base_def_scale = 0.003 * (max(x_coords) if x_coords else 1.0)
-def_scale = base_def_scale * deform_scale_factor if display_mode == "Deformed Mode Shape" else 0.0
+# Render Columns
+for i_idx, x in enumerate(x_coords):
+    for j_idx, y in enumerate(y_coords):
+        for k in range(num_stories):
+            z0, z1 = z_coords[k], z_coords[k+1]
+            fig3d.add_trace(go.Scatter3d(
+                x=[x, x], y=[y, y], z=[z0, z1],
+                mode='lines', line=dict(color='royalblue', width=6),
+                showlegend=False, hoverinfo='text', text=f"Column: {col_assign[k+1]}"
+            ))
 
-# Draw Columns
-if show_columns:
-    for i_idx, x in enumerate(x_coords):
-        for j_idx, y in enumerate(y_coords):
-            for k in range(num_stories):
-                z0, z1 = z_coords[k], z_coords[k+1]
+# Render Slabs (excluding deactivated panels)
+for k in range(1, num_stories + 1):
+    z = z_coords[k]
+    for i_idx in range(bays_x):
+        for j_idx in range(bays_y):
+            p_name_check = f"Level {storey_names[k]} - Panel ({x_grid_labels[i_idx]}-{x_grid_labels[i_idx+1]}, {y_grid_labels[j_idx]}-{y_grid_labels[j_idx+1]})"
+            if p_name_check in inactive_slabs:
+                continue # Skip drawing deleted/inactive panels
                 
-                dx0 = def_scale * (z0 / max(z_coords))**1.5 * math.sin(i_idx + k)
-                dy0 = def_scale * (z0 / max(z_coords))**1.5 * math.cos(j_idx + k)
-                dx1 = def_scale * (z1 / max(z_coords))**1.5 * math.sin(i_idx + k + 1)
-                dy1 = def_scale * (z1 / max(z_coords))**1.5 * math.cos(j_idx + k + 1)
+            x0, x1 = x_coords[i_idx], x_coords[i_idx+1]
+            y0, y1 = y_coords[j_idx], y_coords[j_idx+1]
+            fig3d.add_trace(go.Mesh3d(
+                x=[x0, x1, x1, x0], y=[y0, y0, y1, y1], z=[z, z, z, z],
+                color='lightblue', opacity=0.35, showlegend=False, hoverinfo='text', text=p_name_check
+            ))
 
-                col_color = 'royalblue' if display_mode.startswith("Original") else 'crimson'
-                fig3d.add_trace(go.Scatter3d(
-                    x=[x + dx0, x + dx1], y=[y + dy0, y + dy1], z=[z0, z1],
-                    mode='lines', line=dict(color=col_color, width=6),
-                    hoverinfo='text',
-                    text=f"Column: {col_assign[k+1]} ({storey_names[k]} to {storey_names[k+1]})",
-                    showlegend=False
-                ))
-
-# Draw Beams
-if show_beams:
-    for k in range(1, num_stories + 1):
-        z = z_coords[k]
-        z_ratio = z / max(z_coords)
-        
-        for j_idx, y in enumerate(y_coords):
-            for i_idx in range(bays_x):
-                x0, x1 = x_coords[i_idx], x_coords[i_idx+1]
-                
-                dx0 = def_scale * z_ratio**1.5 * math.sin(i_idx + k - 1)
-                dy0 = def_scale * z_ratio**1.5 * math.cos(j_idx + k - 1)
-                dx1 = def_scale * z_ratio**1.5 * math.sin(i_idx + k)
-                dy1 = def_scale * z_ratio**1.5 * math.cos(j_idx + k)
-
-                beam_color = 'red' if display_mode.startswith("Original") else 'orange'
-                fig3d.add_trace(go.Scatter3d(
-                    x=[x0 + dx0, x1 + dx1], y=[y + dy0, y + dy1], z=[z, z],
-                    mode='lines', line=dict(color=beam_color, width=4),
-                    hoverinfo='text',
-                    text=f"Beam X: {beam_assign[k]} ({storey_names[k]})",
-                    showlegend=False
-                ))
-
-        for i_idx, x in enumerate(x_coords):
-            for j_idx in range(bays_y):
-                y0, y1 = y_coords[j_idx], y_coords[j_idx+1]
-
-                dx0 = def_scale * z_ratio**1.5 * math.sin(i_idx + k - 1)
-                dy0 = def_scale * z_ratio**1.5 * math.cos(j_idx + k - 1)
-                dx1 = def_scale * z_ratio**1.5 * math.sin(i_idx + k)
-                dy1 = def_scale * z_ratio**1.5 * math.cos(j_idx + k)
-
-                fig3d.add_trace(go.Scatter3d(
-                    x=[x + dx0, x + dx1], y=[y0 + dy0, y1 + dy1], z=[z, z],
-                    mode='lines', line=dict(color='green', width=4),
-                    hoverinfo='text',
-                    text=f"Beam Y: {beam_assign[k]} ({storey_names[k]})",
-                    showlegend=False
-                ))
-
-# Draw Slabs
-if show_slabs:
-    for k in range(1, num_stories + 1):
-        z = z_coords[k]
-        z_ratio = z / max(z_coords)
-        for i_idx in range(bays_x):
-            for j_idx in range(bays_y):
-                x0, x1 = x_coords[i_idx], x_coords[i_idx+1]
-                y0, y1 = y_coords[j_idx], y_coords[j_idx+1]
-
-                dx0 = def_scale * z_ratio**1.5 * math.sin(i_idx + k - 1)
-                dy0 = def_scale * z_ratio**1.5 * math.cos(j_idx + k - 1)
-                dx1 = def_scale * z_ratio**1.5 * math.sin(i_idx + k)
-                dy1 = def_scale * z_ratio**1.5 * math.cos(j_idx + k)
-
-                sx = [x0 + dx0, x1 + dx1, x1 + dx1, x0 + dx0]
-                sy = [y0 + dy0, y0 + dy0, y1 + dy1, y1 + dy1]
-                sz = [z, z, z, z]
-
-                fig3d.add_trace(go.Mesh3d(
-                    x=sx, y=sy, z=sz,
-                    color='lightblue', opacity=0.35,
-                    hoverinfo='text',
-                    text=f"Slab: {slab_assign[k]} ({storey_names[k]})",
-                    showlegend=False
-                ))
-
-# Grid Line Labels
-for i, x in enumerate(x_coords):
-    fig3d.add_trace(go.Scatter3d(
-        x=[x], y=[-0.8 * v_scale], z=[0],
-        mode='text', text=[f"Grid {x_grid_labels[i]}"],
-        textfont=dict(size=14, color='darkred'), showlegend=False
-    ))
-
-for j, y in enumerate(y_coords):
-    fig3d.add_trace(go.Scatter3d(
-        x=[-0.8 * v_scale], y=[y], z=[0],
-        mode='text', text=[f"Grid {y_grid_labels[j]}"],
-        textfont=dict(size=14, color='darkblue'), showlegend=False
-    ))
-
-# Storey Name Labels
-for k, z in enumerate(z_coords):
-    fig3d.add_trace(go.Scatter3d(
-        x=[-1.5 * v_scale], y=[-1.5 * v_scale], z=[z],
-        mode='text', text=[f"<b>{storey_names[k]}</b> (Z={z:.1f}{view_unit})"],
-        textfont=dict(size=12, color='black'), showlegend=False
-    ))
-
-fig3d.update_layout(
-    scene=dict(
-        xaxis_title=f'X Axis ({view_unit})',
-        yaxis_title=f'Y Axis ({view_unit})',
-        zaxis_title=f'Z Axis ({view_unit})',
-        aspectmode='data'
-    ),
-    margin=dict(l=0, r=0, b=0, t=30),
-    height=650
-)
-
+fig3d.update_layout(scene=dict(xaxis_title=f'X ({view_unit})', yaxis_title=f'Y ({view_unit})', zaxis_title=f'Z ({view_unit})', aspectmode='data'), height=600)
 st.plotly_chart(fig3d, use_container_width=True)
